@@ -1,391 +1,309 @@
-from pathlib import Path
-import io
+from __future__ import annotations
+
 import csv
+import io
 import re
 import zipfile
-import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Tuple
 import xml.etree.ElementTree as ET
 
 
 # =========================
-# Helpers
+# Util
 # =========================
-def _to_float(v: str) -> float:
-    if v is None:
-        return 0.0
-    s = str(v).strip()
+def _br_money(v: float) -> str:
+    # 1234.56 -> "R$ 1.234,56"
+    s = f"{v:,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+
+def _to_float(s: str | None) -> float:
     if not s:
         return 0.0
-    # aceita "1.234,56" ou "1234.56"
-    s = s.replace(".", "").replace(",", ".")
+    s = str(s).strip()
+    if not s:
+        return 0.0
+    # aceita "1234.56" e "1.234,56"
+    s = s.replace(".", "").replace(",", ".") if "," in s else s
     try:
         return float(s)
     except Exception:
         return 0.0
 
 
-def _br_money(x: float) -> str:
-    # formata 1234.5 -> 1.234,50
-    s = f"{x:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
+def _strip_namespaces(root: ET.Element) -> ET.Element:
+    # Remove namespaces in-place
+    for el in root.iter():
+        if "}" in el.tag:
+            el.tag = el.tag.split("}", 1)[1]
+    return root
 
 
-def _br_num(x: float) -> str:
-    s = f"{x:,.2f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+def _zip_iter_files(zip_bytes: bytes) -> List[Tuple[str, bytes]]:
+    out = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as z:
+        for name in z.namelist():
+            if name.endswith("/"):
+                continue
+            data = z.read(name)
+            out.append((name, data))
+    return out
 
 
 # =========================
 # cClass (Excel)
 # =========================
-def carregar_cclass_lista(xlsx_path="data/Tabela-cClass.xlsx"):
+def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Dict[str, str]]:
+    """
+    Retorna lista para dropdown:
+      [{"code":"0600601","desc":"..."}]
+    """
+
+    # tenta caminhos comuns (pra evitar dor no Render)
+    candidatos = [
+        Path(xlsx_path),
+        Path("Tabela-cClass.xlsx"),
+        Path("data") / "Tabela-cClass.xlsx",
+    ]
+    caminho = None
+    for c in candidatos:
+        if c.exists():
+            caminho = c
+            break
+    if caminho is None:
+        # sem excel: devolve lista vazia (o site ainda roda)
+        return []
+
     import openpyxl
 
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    wb = openpyxl.load_workbook(caminho, data_only=True)
     ws = wb.active
 
-    header = [str(ws.cell(1, c).value or "").strip() for c in range(1, ws.max_column + 1)]
+    # tenta achar colunas pelo cabeçalho
+    header = []
+    for col in range(1, ws.max_column + 1):
+        header.append(str(ws.cell(1, col).value or "").strip().lower())
 
-    def col(nome):
-        for i, h in enumerate(header, start=1):
-            if h.lower() == nome.lower():
-                return i
+    def find_col(*names: str) -> int | None:
+        for n in names:
+            n = n.lower()
+            for i, h in enumerate(header, start=1):
+                if h == n:
+                    return i
         return None
 
-    col_code = col("Grupo/Código") or 1
-    col_desc = col("Descrição") or 2
+    col_code = find_col("cclass", "codigo", "código", "code")
+    col_desc = find_col("descricao", "descrição", "descricao do item", "descrição do item", "desc")
 
-    lista = []
-    for r in range(2, ws.max_row + 1):
-        code = ws.cell(r, col_code).value
-        desc = ws.cell(r, col_desc).value
-        if not code or not desc:
-            continue
+    # fallback: se não achar, assume 1 e 2
+    if col_code is None:
+        col_code = 1
+    if col_desc is None:
+        col_desc = 2
 
-        code = str(code).strip()
-        desc = str(desc).strip()
-
-        if not code.isdigit():
-            continue
-        if len(code) <= 3:
-            continue
-
-        lista.append({"code": code, "desc": desc})
+    lista: List[Dict[str, str]] = []
+    for row in range(2, ws.max_row + 1):
+        code = str(ws.cell(row, col_code).value or "").strip()
+        desc = str(ws.cell(row, col_desc).value or "").strip()
+        if code:
+            lista.append({"code": code, "desc": desc})
 
     return lista
 
 
+def cclass_desc_map(cclass_lista: List[Dict[str, str]]) -> Dict[str, str]:
+    return {i["code"]: i.get("desc", "") for i in cclass_lista}
+
+
 # =========================
-# Regras
+# Regras (texto)
 # =========================
-def parse_regras_texto(txt):
-    regras = {}
-    for ln in (txt or "").splitlines():
-        ln = ln.strip()
-        if not ln or ";" not in ln:
+def parse_regras_texto(txt: str) -> Dict[str, str]:
+    """
+    Formato por linha: cClass;CFOP
+    Ex:
+      060101;5102
+      110201;5102
+    """
+    regras: Dict[str, str] = {}
+    for line in (txt or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
             continue
-        c, f = ln.split(";", 1)
-        regras[c.strip()] = f.strip()
+        # aceita ; ou , ou :
+        if ";" in line:
+            parts = [p.strip() for p in line.split(";", 1)]
+        elif "," in line:
+            parts = [p.strip() for p in line.split(",", 1)]
+        elif ":" in line:
+            parts = [p.strip() for p in line.split(":", 1)]
+        else:
+            continue
+        if len(parts) == 2 and parts[0] and parts[1]:
+            regras[parts[0]] = parts[1]
     return regras
 
 
-def aplicar_regras_texto(texto, regras, remover_desc, remover_outros):
-    novo = texto
+# =========================
+# Aplicar regras no XML (lote)
+# =========================
+def aplicar_regras_xml_str(
+    xml_str: str,
+    regras: Dict[str, str],
+    remover_desconto: bool = False,
+    remover_outros: bool = False,
+) -> str:
+    novo = xml_str
 
-    if remover_desc:
+    if remover_desconto:
         novo = re.sub(r"<vDesc>.*?</vDesc>", "", novo, flags=re.DOTALL)
 
     if remover_outros:
         novo = re.sub(r"<vOutro>.*?</vOutro>", "", novo, flags=re.DOTALL)
 
+    # Insere CFOP logo após cClass quando não existir CFOP em seguida
     for cclass, cfop in regras.items():
-        padrao = rf"(<cClass>{cclass}</cClass>)(?!\s*<CFOP>)"
+        padrao = rf"(<cClass>{re.escape(cclass)}</cClass>)(?!\s*<CFOP>)"
         novo = re.sub(padrao, rf"\1<CFOP>{cfop}</CFOP>", novo)
 
     return novo
 
 
+def processar_lote_zip(
+    zip_bytes: bytes,
+    regras: Dict[str, str],
+    remover_desconto: bool = False,
+    remover_outros: bool = False,
+) -> bytes:
+    """
+    Entrada: ZIP com XML/TXT
+    Saída: ZIP com XML editados (TXT é copiado)
+    """
+    in_files = _zip_iter_files(zip_bytes)
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for name, data in in_files:
+            low = name.lower()
+            if low.endswith(".xml"):
+                try:
+                    s = data.decode("utf-8", errors="ignore")
+                    s2 = aplicar_regras_xml_str(s, regras, remover_desconto, remover_outros)
+                    zout.writestr(name, s2.encode("utf-8"))
+                except Exception:
+                    # se falhar, copia original
+                    zout.writestr(name, data)
+            else:
+                zout.writestr(name, data)
+
+    mem.seek(0)
+    return mem.read()
+
+
 # =========================
-# LOTE
+# Parse NFCom (para Nota/Resumo)
 # =========================
-def processar_lote_zip(zip_bytes, regras, remover_desc=False, remover_outros=False):
-    tmp = Path(tempfile.mkdtemp())
-    inp = tmp / "in"
-    out = tmp / "out"
-    inp.mkdir()
-    out.mkdir()
-
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        z.extractall(inp)
-
-    for f in inp.rglob("*.xml"):
-        txt = f.read_text(encoding="utf-8", errors="ignore")
-        novo = aplicar_regras_texto(txt, regras, remover_desc, remover_outros)
-        dest = out / f.relative_to(inp)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(novo, encoding="utf-8")
-
-    bio = io.BytesIO()
-    with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in out.rglob("*.xml"):
-            z.write(f, f.relative_to(out))
-
-    return bio.getvalue()
+@dataclass
+class ItemNF:
+    cclass: str
+    vprod: float
 
 
-# =========================
-# NOTA ÚNICA
-# =========================
-def parse_nfcom(xml_bytes):
-    def text(e):
-        return (e.text or "").strip() if e is not None else ""
-
-    def find(root, path, ns):
-        return root.find(path, ns) if root is not None else None
-
-    def findall(root, path, ns):
-        return root.findall(path, ns) if root is not None else []
-
+def parse_nfcom(xml_bytes: bytes) -> List[ItemNF]:
+    """
+    Extrai itens com cClass e vProd.
+    Remove namespaces e tenta associar vProd ao mesmo "bloco" do cClass.
+    """
     root = ET.fromstring(xml_bytes)
+    root = _strip_namespaces(root)
 
-    # Namespace seguro (caso venha sem namespace)
-    if "}" in root.tag:
-        ns_uri = root.tag.split("}")[0].strip("{")
-        ns = {"n": ns_uri}
-        pref = "n:"
-    else:
-        ns = {}
-        pref = ""
+    itens: List[ItemNF] = []
 
-    inf = find(root, f".//{pref}infNFCom", ns)
-
-    emit = find(inf, f".//{pref}emit", ns)
-    dest = find(inf, f".//{pref}dest", ns)
-
-    nNF = text(find(inf, f".//{pref}nNF", ns))
-    serie = text(find(inf, f".//{pref}serie", ns))
-    dhEmi = text(find(inf, f".//{pref}dhEmi", ns))
-    chNFCom = text(find(root, f".//{pref}chNFCom", ns)) or text(find(inf, f".//{pref}chNFCom", ns))
-
-    prot = find(root, f".//{pref}protNFCom", ns)
-    prot_num = text(find(prot, f".//{pref}nProt", ns))
-    prot_data = text(find(prot, f".//{pref}dhRecbto", ns))
-
-    emit_nome = text(find(emit, f".//{pref}xNome", ns))
-    emit_fant = text(find(emit, f".//{pref}xFant", ns))
-    emit_cnpj = text(find(emit, f".//{pref}CNPJ", ns))
-    emit_ie = text(find(emit, f".//{pref}IE", ns))
-
-    end_emit = find(emit, f".//{pref}enderEmit", ns)
-    emit_l1 = " ".join([x for x in [
-        text(find(end_emit, f".//{pref}xLgr", ns)),
-        text(find(end_emit, f".//{pref}nro", ns)),
-        text(find(end_emit, f".//{pref}xBairro", ns)),
-    ] if x]).strip()
-    emit_l2 = " - ".join([x for x in [
-        text(find(end_emit, f".//{pref}xMun", ns)),
-        text(find(end_emit, f".//{pref}UF", ns)),
-        text(find(end_emit, f".//{pref}CEP", ns)),
-    ] if x]).strip()
-
-    dest_nome = text(find(dest, f".//{pref}xNome", ns))
-    dest_cpf = text(find(dest, f".//{pref}CPF", ns))
-    dest_cnpj = text(find(dest, f".//{pref}CNPJ", ns))
-    dest_doc = dest_cnpj or dest_cpf
-
-    end_dest = find(dest, f".//{pref}enderDest", ns)
-    dest_l1 = " ".join([x for x in [
-        text(find(end_dest, f".//{pref}xLgr", ns)),
-        text(find(end_dest, f".//{pref}nro", ns)),
-        text(find(end_dest, f".//{pref}xBairro", ns)),
-    ] if x]).strip()
-    dest_l2 = " - ".join([x for x in [
-        text(find(end_dest, f".//{pref}xMun", ns)),
-        text(find(end_dest, f".//{pref}UF", ns)),
-        text(find(end_dest, f".//{pref}CEP", ns)),
-    ] if x]).strip()
-
-    total = find(inf, f".//{pref}total", ns)
-    vNF = text(find(total, f".//{pref}vNF", ns)) or text(find(inf, f".//{pref}vNF", ns))
-    bc_total = text(find(total, f".//{pref}vBC", ns))
-    icms_total = text(find(total, f".//{pref}vICMS", ns))
-    vPIS = text(find(total, f".//{pref}vPIS", ns))
-    vCOFINS = text(find(total, f".//{pref}vCOFINS", ns))
-
-    itens = []
-    for det in findall(inf, f".//{pref}det", ns):
-        prod = find(det, f".//{pref}prod", ns)
-        imposto = find(det, f".//{pref}imposto", ns)
-
-        cClass = text(find(prod, f".//{pref}cClass", ns))
-        xProd = text(find(prod, f".//{pref}xProd", ns))
-        un = text(find(prod, f".//{pref}uCom", ns)) or text(find(prod, f".//{pref}uMed", ns))
-        qtd = text(find(prod, f".//{pref}qCom", ns)) or text(find(prod, f".//{pref}qMed", ns))
-        vUnit = text(find(prod, f".//{pref}vUnCom", ns)) or text(find(prod, f".//{pref}vUnMed", ns))
-        vTotal = text(find(prod, f".//{pref}vProd", ns)) or text(find(prod, f".//{pref}vItem", ns))
-
-        bc_icms = text(find(imposto, f".//{pref}vBC", ns))
-        aliq_icms = text(find(imposto, f".//{pref}pICMS", ns))
-        v_icms = text(find(imposto, f".//{pref}vICMS", ns))
-
-        v_pis_item = text(find(imposto, f".//{pref}vPIS", ns))
-        v_cof_item = text(find(imposto, f".//{pref}vCOFINS", ns))
-        pis_cof = ""
-        if v_pis_item or v_cof_item:
-            pis_cof = f"{v_pis_item or '0,00'} / {v_cof_item or '0,00'}"
-
-        itens.append({
-            "cClass": cClass,
-            "xProd": xProd,
-            "un": un,
-            "qtd": qtd,
-            "vUnit": vUnit,
-            "vTotal": vTotal,
-            "pis_cofins": pis_cof,
-            "bc_icms": bc_icms,
-            "aliq_icms": aliq_icms,
-            "v_icms": v_icms,
-        })
-
-    return {
-        "nNF": nNF,
-        "serie": serie,
-        "dhEmi": dhEmi,
-        "chNFCom": chNFCom,
-        "prot_num": prot_num,
-        "prot_data": prot_data,
-
-        "emit_nome": emit_nome,
-        "emit_fantasia": emit_fant,
-        "emit_cnpj": emit_cnpj,
-        "emit_ie": emit_ie,
-        "emit_endereco_linha1": emit_l1,
-        "emit_endereco_linha2": emit_l2,
-
-        "dest_nome": dest_nome,
-        "dest_doc": dest_doc,
-        "dest_endereco_linha1": dest_l1,
-        "dest_endereco_linha2": dest_l2,
-
-        "total_fmt": (f"R$ {vNF}" if vNF else ""),
-        "bc_total_fmt": (f"R$ {bc_total}" if bc_total else ""),
-        "icms_total_fmt": (f"R$ {icms_total}" if icms_total else ""),
-        "pis_total_fmt": (f"R$ {vPIS}" if vPIS else ""),
-        "cofins_total_fmt": (f"R$ {vCOFINS}" if vCOFINS else ""),
-
-        "qrcode_url": "",
-        "itens": itens,
-
-        "area_contribuinte": "",
-        "info_complementar": "",
-        "anatel_texto": "",
-        "referencia": "",
-        "vencimento": "",
-        "periodo": "",
-        "telefone": "",
-        "cod_assinante": "",
-        "contrato": "",
-        "total_pagar_fmt": (f"R$ {vNF}" if vNF else ""),
-    }
-
-
-# =========================
-# CSV
-# =========================
-def gerar_csv_de_zip(zip_bytes, mapping):
-    tmp = Path(tempfile.mkdtemp())
-    inp = tmp / "in"
-    inp.mkdir()
-
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        z.extractall(inp)
-
-    bio = io.StringIO()
-    w = csv.writer(bio, delimiter=";")
-    w.writerow([m[0] for m in mapping])
-
-    for f in inp.rglob("*.xml"):
-        root = ET.fromstring(f.read_bytes())
-        row = []
-        for _, campo in mapping:
-            el = root.find(f".//{campo}")
-            row.append(el.text if el is not None else "")
-        w.writerow(row)
-
-    return bio.getvalue().encode("utf-8-sig")
-
-
-# =========================
-# RESUMO (ZIP -> Tabela + Pizza)
-# =========================
-def gerar_resumo_de_zip(zip_bytes):
-    """
-    Lê ZIP de XMLs, soma valor por cClass (usando vProd/vItem se existir)
-    Retorna o objeto no formato que o templates/resumo.html espera.
-    """
-    tmp = Path(tempfile.mkdtemp())
-    inp = tmp / "in"
-    inp.mkdir()
-
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        z.extractall(inp)
-
-    total_arquivos = 0
-    total_geral = 0.0
-
-    # cClass -> {qtd_itens, v_total}
-    mapa = {}
-
-    for f in inp.rglob("*.xml"):
-        total_arquivos += 1
-        xml = f.read_bytes()
-
-        try:
-            root = ET.fromstring(xml)
-        except Exception:
-            # ignora xml inválido
+    # pega todos cClass e tenta achar vProd no pai (ou no avô)
+    for c_el in root.findall(".//cClass"):
+        cclass = (c_el.text or "").strip()
+        if not cclass:
             continue
 
-        # tenta pegar itens: qualquer tag cClass dentro de det/prod
-        # e valor: vProd ou vItem (se existir)
-        for det in root.findall(".//det"):
-            cclass_el = det.find(".//cClass")
-            v_el = det.find(".//vProd") or det.find(".//vItem")
+        vprod = 0.0
 
-            cclass = (cclass_el.text or "").strip() if cclass_el is not None else ""
-            v = _to_float(v_el.text) if v_el is not None else 0.0
+        parent = _find_parent(root, c_el)
+        if parent is not None:
+            vp = parent.find(".//vProd")
+            if vp is not None and (vp.text or "").strip():
+                vprod = _to_float(vp.text)
+            else:
+                grand = _find_parent(root, parent)
+                if grand is not None:
+                    vp2 = grand.find(".//vProd")
+                    if vp2 is not None and (vp2.text or "").strip():
+                        vprod = _to_float(vp2.text)
 
-            if not cclass:
-                continue
+        itens.append(ItemNF(cclass=cclass, vprod=vprod))
 
-            if cclass not in mapa:
-                mapa[cclass] = {"qtd_itens": 0, "v_total": 0.0}
+    return itens
 
-            mapa[cclass]["qtd_itens"] += 1
-            mapa[cclass]["v_total"] += v
-            total_geral += v
 
-    # monta linhas ordenadas por valor desc
+def _find_parent(root: ET.Element, child: ET.Element) -> ET.Element | None:
+    # ElementTree não guarda parent. Faz busca linear.
+    for p in root.iter():
+        for c in list(p):
+            if c is child:
+                return p
+    return None
+
+
+# =========================
+# RESUMO (ZIP -> Totais por cClass)
+# =========================
+def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None) -> dict:
+    desc_map = desc_map or {}
+
+    arquivos = [(n, b) for (n, b) in _zip_iter_files(zip_bytes) if n.lower().endswith(".xml")]
+    total_arquivos = len(arquivos)
+
+    por_cclass: Dict[str, Dict[str, float]] = {}
+    total_geral = 0.0
+
+    for _, xmlb in arquivos:
+        try:
+            itens = parse_nfcom(xmlb)
+        except Exception:
+            continue
+
+        for it in itens:
+            cc = it.cclass
+            por_cclass.setdefault(cc, {"qtd_itens": 0.0, "v_total": 0.0})
+            por_cclass[cc]["qtd_itens"] += 1
+            por_cclass[cc]["v_total"] += float(it.vprod)
+            total_geral += float(it.vprod)
+
+    # monta linhas ordenadas
     linhas = []
-    for cclass, info in mapa.items():
-        v_total = info["v_total"]
+    for cc, agg in por_cclass.items():
+        v_total = float(agg["v_total"])
+        qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
-        linhas.append({
-            "cClass": cclass,
-            "qtd_itens": info["qtd_itens"],
-            "v_total": v_total,
-            "v_total_br": _br_money(v_total),
-            "pct": pct,
-            "pct_br": _br_num(pct),
-        })
+        linhas.append(
+            {
+                "cClass": cc,
+                "descricao": desc_map.get(cc, ""),
+                "qtd_itens": qtd,
+                "v_total": v_total,
+                "v_total_br": _br_money(v_total),
+                "pct": pct,
+                "pct_br": f"{pct:.2f}".replace(".", ","),
+            }
+        )
 
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
-    # gráfico top 12
+    # top 12 pro gráfico
     top = linhas[:12]
-    labels = [r["cClass"] for r in top]
-    valores = [round(r["v_total"], 2) for r in top]
+    labels = [f'{r["cClass"]}' for r in top]
+    valores = [round(float(r["v_total"]), 2) for r in top]
 
     return {
         "total_arquivos": total_arquivos,
@@ -395,3 +313,34 @@ def gerar_resumo_de_zip(zip_bytes):
         "labels": labels,
         "valores": valores,
     }
+
+
+# =========================
+# CSV (ZIP -> CSV)
+# =========================
+def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
+    """
+    mapping: [(cabecalho, tag_xml), ...]
+    Gera 1 linha por XML.
+    """
+    arquivos = [(n, b) for (n, b) in _zip_iter_files(zip_bytes) if n.lower().endswith(".xml")]
+
+    bio = io.StringIO()
+    w = csv.writer(bio, delimiter=";")
+    w.writerow([m[0] for m in mapping])
+
+    for _, xmlb in arquivos:
+        try:
+            root = ET.fromstring(xmlb)
+            root = _strip_namespaces(root)
+        except Exception:
+            w.writerow(["" for _ in mapping])
+            continue
+
+        row = []
+        for _, campo in mapping:
+            el = root.find(f".//{campo}")
+            row.append((el.text or "").strip() if el is not None else "")
+        w.writerow(row)
+
+    return bio.getvalue().encode("utf-8-sig")
