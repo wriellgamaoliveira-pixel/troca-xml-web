@@ -6,6 +6,36 @@ import zipfile
 import tempfile
 import xml.etree.ElementTree as ET
 
+
+# =========================
+# Helpers
+# =========================
+def _to_float(v: str) -> float:
+    if v is None:
+        return 0.0
+    s = str(v).strip()
+    if not s:
+        return 0.0
+    # aceita "1.234,56" ou "1234.56"
+    s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def _br_money(x: float) -> str:
+    # formata 1234.5 -> 1.234,50
+    s = f"{x:,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+
+def _br_num(x: float) -> str:
+    s = f"{x:,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 # =========================
 # cClass (Excel)
 # =========================
@@ -108,103 +138,99 @@ def processar_lote_zip(zip_bytes, regras, remover_desc=False, remover_outros=Fal
 # NOTA ÚNICA
 # =========================
 def parse_nfcom(xml_bytes):
-    import xml.etree.ElementTree as ET
-
     def text(e):
         return (e.text or "").strip() if e is not None else ""
 
     def find(root, path, ns):
-        return root.find(path, ns)
+        return root.find(path, ns) if root is not None else None
 
     def findall(root, path, ns):
-        return root.findall(path, ns)
+        return root.findall(path, ns) if root is not None else []
 
     root = ET.fromstring(xml_bytes)
-    ns_uri = root.tag.split("}")[0].strip("{")
-    ns = {"n": ns_uri}
 
-    inf = find(root, ".//n:infNFCom", ns)
+    # Namespace seguro (caso venha sem namespace)
+    if "}" in root.tag:
+        ns_uri = root.tag.split("}")[0].strip("{")
+        ns = {"n": ns_uri}
+        pref = "n:"
+    else:
+        ns = {}
+        pref = ""
 
-    # emitente/destinatário (nomes variam por implementação; usamos o que existir)
-    emit = find(inf, ".//n:emit", ns) if inf is not None else None
-    dest = find(inf, ".//n:dest", ns) if inf is not None else None
+    inf = find(root, f".//{pref}infNFCom", ns)
 
-    # alguns campos comuns
-    nNF = text(find(inf, ".//n:nNF", ns))
-    serie = text(find(inf, ".//n:serie", ns))
-    dhEmi = text(find(inf, ".//n:dhEmi", ns))
-    chNFCom = text(find(root, ".//n:chNFCom", ns)) or text(find(inf, ".//n:chNFCom", ns))
+    emit = find(inf, f".//{pref}emit", ns)
+    dest = find(inf, f".//{pref}dest", ns)
 
-    # protocolo (quando presente)
-    prot = find(root, ".//n:protNFCom", ns)
-    prot_num = text(find(prot, ".//n:nProt", ns))
-    prot_data = text(find(prot, ".//n:dhRecbto", ns))
+    nNF = text(find(inf, f".//{pref}nNF", ns))
+    serie = text(find(inf, f".//{pref}serie", ns))
+    dhEmi = text(find(inf, f".//{pref}dhEmi", ns))
+    chNFCom = text(find(root, f".//{pref}chNFCom", ns)) or text(find(inf, f".//{pref}chNFCom", ns))
 
-    # emit
-    emit_nome = text(find(emit, ".//n:xNome", ns))
-    emit_fant = text(find(emit, ".//n:xFant", ns))
-    emit_cnpj = text(find(emit, ".//n:CNPJ", ns))
-    emit_ie = text(find(emit, ".//n:IE", ns))
+    prot = find(root, f".//{pref}protNFCom", ns)
+    prot_num = text(find(prot, f".//{pref}nProt", ns))
+    prot_data = text(find(prot, f".//{pref}dhRecbto", ns))
 
-    end_emit = find(emit, ".//n:enderEmit", ns)
+    emit_nome = text(find(emit, f".//{pref}xNome", ns))
+    emit_fant = text(find(emit, f".//{pref}xFant", ns))
+    emit_cnpj = text(find(emit, f".//{pref}CNPJ", ns))
+    emit_ie = text(find(emit, f".//{pref}IE", ns))
+
+    end_emit = find(emit, f".//{pref}enderEmit", ns)
     emit_l1 = " ".join([x for x in [
-        text(find(end_emit, ".//n:xLgr", ns)),
-        text(find(end_emit, ".//n:nro", ns)),
-        text(find(end_emit, ".//n:xBairro", ns)),
+        text(find(end_emit, f".//{pref}xLgr", ns)),
+        text(find(end_emit, f".//{pref}nro", ns)),
+        text(find(end_emit, f".//{pref}xBairro", ns)),
     ] if x]).strip()
     emit_l2 = " - ".join([x for x in [
-        text(find(end_emit, ".//n:xMun", ns)),
-        text(find(end_emit, ".//n:UF", ns)),
-        text(find(end_emit, ".//n:CEP", ns)),
+        text(find(end_emit, f".//{pref}xMun", ns)),
+        text(find(end_emit, f".//{pref}UF", ns)),
+        text(find(end_emit, f".//{pref}CEP", ns)),
     ] if x]).strip()
 
-    # dest
-    dest_nome = text(find(dest, ".//n:xNome", ns))
-    dest_cpf = text(find(dest, ".//n:CPF", ns))
-    dest_cnpj = text(find(dest, ".//n:CNPJ", ns))
+    dest_nome = text(find(dest, f".//{pref}xNome", ns))
+    dest_cpf = text(find(dest, f".//{pref}CPF", ns))
+    dest_cnpj = text(find(dest, f".//{pref}CNPJ", ns))
     dest_doc = dest_cnpj or dest_cpf
 
-    end_dest = find(dest, ".//n:enderDest", ns)
+    end_dest = find(dest, f".//{pref}enderDest", ns)
     dest_l1 = " ".join([x for x in [
-        text(find(end_dest, ".//n:xLgr", ns)),
-        text(find(end_dest, ".//n:nro", ns)),
-        text(find(end_dest, ".//n:xBairro", ns)),
+        text(find(end_dest, f".//{pref}xLgr", ns)),
+        text(find(end_dest, f".//{pref}nro", ns)),
+        text(find(end_dest, f".//{pref}xBairro", ns)),
     ] if x]).strip()
     dest_l2 = " - ".join([x for x in [
-        text(find(end_dest, ".//n:xMun", ns)),
-        text(find(end_dest, ".//n:UF", ns)),
-        text(find(end_dest, ".//n:CEP", ns)),
+        text(find(end_dest, f".//{pref}xMun", ns)),
+        text(find(end_dest, f".//{pref}UF", ns)),
+        text(find(end_dest, f".//{pref}CEP", ns)),
     ] if x]).strip()
 
-    # totais (tenta pegar vNF e alguns impostos, se existirem)
-    total = find(inf, ".//n:total", ns) if inf is not None else None
-    vNF = text(find(total, ".//n:vNF", ns)) or text(find(inf, ".//n:vNF", ns))
-    bc_total = text(find(total, ".//n:vBC", ns))
-    icms_total = text(find(total, ".//n:vICMS", ns))
-    vPIS = text(find(total, ".//n:vPIS", ns))
-    vCOFINS = text(find(total, ".//n:vCOFINS", ns))
+    total = find(inf, f".//{pref}total", ns)
+    vNF = text(find(total, f".//{pref}vNF", ns)) or text(find(inf, f".//{pref}vNF", ns))
+    bc_total = text(find(total, f".//{pref}vBC", ns))
+    icms_total = text(find(total, f".//{pref}vICMS", ns))
+    vPIS = text(find(total, f".//{pref}vPIS", ns))
+    vCOFINS = text(find(total, f".//{pref}vCOFINS", ns))
 
-    # itens (det/prod/imposto variam; pegamos o que existir)
     itens = []
-    for det in findall(inf, ".//n:det", ns) if inf is not None else []:
-        prod = find(det, ".//n:prod", ns)
-        imposto = find(det, ".//n:imposto", ns)
+    for det in findall(inf, f".//{pref}det", ns):
+        prod = find(det, f".//{pref}prod", ns)
+        imposto = find(det, f".//{pref}imposto", ns)
 
-        cClass = text(find(prod, ".//n:cClass", ns))
-        xProd = text(find(prod, ".//n:xProd", ns))
-        un = text(find(prod, ".//n:uCom", ns)) or text(find(prod, ".//n:uMed", ns))
-        qtd = text(find(prod, ".//n:qCom", ns)) or text(find(prod, ".//n:qMed", ns))
-        vUnit = text(find(prod, ".//n:vUnCom", ns)) or text(find(prod, ".//n:vUnMed", ns))
-        vTotal = text(find(prod, ".//n:vProd", ns)) or text(find(prod, ".//n:vItem", ns))
+        cClass = text(find(prod, f".//{pref}cClass", ns))
+        xProd = text(find(prod, f".//{pref}xProd", ns))
+        un = text(find(prod, f".//{pref}uCom", ns)) or text(find(prod, f".//{pref}uMed", ns))
+        qtd = text(find(prod, f".//{pref}qCom", ns)) or text(find(prod, f".//{pref}qMed", ns))
+        vUnit = text(find(prod, f".//{pref}vUnCom", ns)) or text(find(prod, f".//{pref}vUnMed", ns))
+        vTotal = text(find(prod, f".//{pref}vProd", ns)) or text(find(prod, f".//{pref}vItem", ns))
 
-        # ICMS (se existir)
-        bc_icms = text(find(imposto, ".//n:vBC", ns))
-        aliq_icms = text(find(imposto, ".//n:pICMS", ns))
-        v_icms = text(find(imposto, ".//n:vICMS", ns))
+        bc_icms = text(find(imposto, f".//{pref}vBC", ns))
+        aliq_icms = text(find(imposto, f".//{pref}pICMS", ns))
+        v_icms = text(find(imposto, f".//{pref}vICMS", ns))
 
-        # PIS/COFINS (se existir)
-        v_pis_item = text(find(imposto, ".//n:vPIS", ns))
-        v_cof_item = text(find(imposto, ".//n:vCOFINS", ns))
+        v_pis_item = text(find(imposto, f".//{pref}vPIS", ns))
+        v_cof_item = text(find(imposto, f".//{pref}vCOFINS", ns))
         pis_cof = ""
         if v_pis_item or v_cof_item:
             pis_cof = f"{v_pis_item or '0,00'} / {v_cof_item or '0,00'}"
@@ -248,10 +274,9 @@ def parse_nfcom(xml_bytes):
         "pis_total_fmt": (f"R$ {vPIS}" if vPIS else ""),
         "cofins_total_fmt": (f"R$ {vCOFINS}" if vCOFINS else ""),
 
-        "qrcode_url": "",  # se você tiver a URL no XML a gente liga aqui
+        "qrcode_url": "",
         "itens": itens,
 
-        # campos do modelo que podem não existir no XML:
         "area_contribuinte": "",
         "info_complementar": "",
         "anatel_texto": "",
@@ -263,7 +288,6 @@ def parse_nfcom(xml_bytes):
         "contrato": "",
         "total_pagar_fmt": (f"R$ {vNF}" if vNF else ""),
     }
-
 
 
 # =========================
@@ -291,3 +315,83 @@ def gerar_csv_de_zip(zip_bytes, mapping):
 
     return bio.getvalue().encode("utf-8-sig")
 
+
+# =========================
+# RESUMO (ZIP -> Tabela + Pizza)
+# =========================
+def gerar_resumo_de_zip(zip_bytes):
+    """
+    Lê ZIP de XMLs, soma valor por cClass (usando vProd/vItem se existir)
+    Retorna o objeto no formato que o templates/resumo.html espera.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    inp = tmp / "in"
+    inp.mkdir()
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        z.extractall(inp)
+
+    total_arquivos = 0
+    total_geral = 0.0
+
+    # cClass -> {qtd_itens, v_total}
+    mapa = {}
+
+    for f in inp.rglob("*.xml"):
+        total_arquivos += 1
+        xml = f.read_bytes()
+
+        try:
+            root = ET.fromstring(xml)
+        except Exception:
+            # ignora xml inválido
+            continue
+
+        # tenta pegar itens: qualquer tag cClass dentro de det/prod
+        # e valor: vProd ou vItem (se existir)
+        for det in root.findall(".//det"):
+            cclass_el = det.find(".//cClass")
+            v_el = det.find(".//vProd") or det.find(".//vItem")
+
+            cclass = (cclass_el.text or "").strip() if cclass_el is not None else ""
+            v = _to_float(v_el.text) if v_el is not None else 0.0
+
+            if not cclass:
+                continue
+
+            if cclass not in mapa:
+                mapa[cclass] = {"qtd_itens": 0, "v_total": 0.0}
+
+            mapa[cclass]["qtd_itens"] += 1
+            mapa[cclass]["v_total"] += v
+            total_geral += v
+
+    # monta linhas ordenadas por valor desc
+    linhas = []
+    for cclass, info in mapa.items():
+        v_total = info["v_total"]
+        pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
+        linhas.append({
+            "cClass": cclass,
+            "qtd_itens": info["qtd_itens"],
+            "v_total": v_total,
+            "v_total_br": _br_money(v_total),
+            "pct": pct,
+            "pct_br": _br_num(pct),
+        })
+
+    linhas.sort(key=lambda x: x["v_total"], reverse=True)
+
+    # gráfico top 12
+    top = linhas[:12]
+    labels = [r["cClass"] for r in top]
+    valores = [round(r["v_total"], 2) for r in top]
+
+    return {
+        "total_arquivos": total_arquivos,
+        "total_geral": total_geral,
+        "total_geral_br": _br_money(total_geral),
+        "linhas": linhas,
+        "labels": labels,
+        "valores": valores,
+    }
