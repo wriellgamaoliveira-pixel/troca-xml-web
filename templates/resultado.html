@@ -1,38 +1,230 @@
-{% extends "base.html" %}
-{% block content %}
-<h1>{{ titulo }}</h1>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Documento Auxiliar NFCom - {{ d.nNF or "—" }}</title>
+  <style>
+    :root{--border:#222;--grid:#444;--muted:#666;--bg:#f2f2f2;}
+    *{box-sizing:border-box}
+    body{margin:0;padding:24px;font-family:Arial, Helvetica, sans-serif;color:#111;background:#fff;}
+    .page{width:900px;max-width:100%;margin:0 auto;border:2px solid var(--border);padding:14px;}
+    .header{display:grid;grid-template-columns:210px 1fr;gap:14px;align-items:center;background:#d9d9d9;border:1px solid var(--border);padding:12px;}
+    .logo{height:110px;border:1px solid #999;display:flex;align-items:center;justify-content:center;background:#0d2b5b;color:#fff;font-weight:700;letter-spacing:.5px;text-align:center;padding:10px;}
+    .header h1{font-size:14px;margin:0 0 10px 0;text-align:center;font-weight:700;text-transform:uppercase;}
+    .emit{font-size:12px;line-height:1.35;}
+    .emit .name{font-weight:700}
+    .top-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}
+    .box{border:1px solid var(--border);padding:10px;}
+    .box h2{margin:0 0 8px 0;font-size:12px;text-transform:uppercase;letter-spacing:.2px;}
+    .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 10px;font-size:12px;line-height:1.35;}
+    .kv .k{color:#000;font-weight:700;text-transform:uppercase;font-size:11px;}
+    .kv .v{color:#111}
+    .qr-area{display:grid;grid-template-columns:1fr;gap:8px;font-size:12px;}
+    .qr{height:150px;border:1px solid #999;display:flex;align-items:center;justify-content:center;font-weight:700;color:#111;background:#fff;}
+    .mini{font-size:11px;color:var(--muted);word-break:break-word;}
+    .ref-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;}
+    .ref-card{border:1px solid var(--border);padding:8px;font-size:12px;}
+    .ref-card .title{font-weight:700;text-transform:uppercase;font-size:11px;margin-bottom:4px;}
+    .contrib{border:1px solid var(--border);padding:10px;margin-top:10px;font-size:12px;min-height:70px;}
+    table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}
+    th, td{border:1px solid var(--grid);padding:6px 8px;vertical-align:top;}
+    th{background:#efefef;text-transform:uppercase;font-size:11px;letter-spacing:.2px;}
+    td.num{text-align:right;white-space:nowrap;}
+    td.center{text-align:center;white-space:nowrap;}
+    .bottom-grid{display:grid;grid-template-columns:260px 260px 1fr;gap:10px;margin-top:12px;align-items:start;}
+    .table-like{border:1px solid var(--border);}
+    .table-like .row{display:grid;grid-template-columns:1fr 110px;border-top:1px solid var(--border);}
+    .table-like .row:first-child{border-top:none;}
+    .table-like .cell{padding:8px;font-size:12px;}
+    .table-like .cell.k{background:#e6e6e6;font-weight:700;text-transform:uppercase;font-size:11px;}
+    .table-like .cell.v{text-align:right;white-space:nowrap;}
+    .section{margin-top:12px;border:1px solid var(--border);}
+    .section .sec-title{background:#e6e6e6;font-weight:700;text-transform:uppercase;font-size:11px;padding:8px;border-bottom:1px solid var(--border);text-align:center;letter-spacing:.2px;}
+    .section .sec-body{min-height:70px;padding:10px;font-size:12px;}
+    .barcode-area{display:grid;grid-template-columns:240px 1fr 120px;gap:10px;margin-top:12px;border:1px solid var(--border);}
+    .barcode-area .col{padding:10px;min-height:86px;}
+    .barcode-area .col + .col{border-left:1px solid var(--border);}
+    .barcode-title{font-weight:700;text-transform:uppercase;font-size:11px;margin-bottom:6px;text-align:center;}
+    .barcode{height:44px;border:1px solid #999;display:flex;align-items:center;justify-content:center;font-weight:700;letter-spacing:2px;background:#fff;}
+    .linha-digitavel{margin-top:6px;text-align:center;font-size:12px;letter-spacing:.5px;white-space:nowrap;}
+    .pix{display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;letter-spacing:1px;}
+    @media print{body{padding:0}.page{border:none}}
+  </style>
+</head>
 
-<div class="card">
-  <p><b>Chave:</b> {{ dados.chave }}</p>
-  <p><b>Número/Série:</b> {{ dados.nNF }} / {{ dados.serie }}</p>
-  <p><b>Emissão:</b> {{ dados.dhEmi }}</p>
-  <p><b>Emitente:</b> {{ dados.emit_nome }}</p>
-  <p><b>Destinatário:</b> {{ dados.dest_nome }}</p>
-  <p><b>vNF:</b> {{ dados.vNF }} | <b>vICMS:</b> {{ dados.vICMS }} | <b>vDesc:</b> {{ dados.vDesc }} | <b>vOutro:</b> {{ dados.vOutro }}</p>
-</div>
+<body>
+  <div class="page">
 
-<div class="card">
-  <h3>Itens</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>cClass</th>
-        <th>Descrição</th>
-        <th>Qtd</th>
-        <th>Valor</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in dados.itens %}
-      <tr>
-        <td>{{ it.cClass }}</td>
-        <td>{{ it.xProd }}</td>
-        <td>{{ it.qCom }}</td>
-        <td>{{ it.vProd }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+    <div class="header">
+      <div class="logo">{{ d.emit_fantasia or d.emit_nome or "LOGO" }}</div>
 
-{% endblock %}
+      <div>
+        <h1>DOCUMENTO AUXILIAR DA NOTA FISCAL FATURA DE SERVIÇOS DE COMUNICAÇÃO ELETRÔNICA</h1>
+        <div class="emit">
+          <div class="name">{{ d.emit_nome or "—" }}</div>
+          <div><b>CNPJ:</b> {{ d.emit_cnpj or "—" }}</div>
+          <div><b>IE:</b> {{ d.emit_ie or "—" }}</div>
+          <div><b>Endereço:</b> {{ d.emit_endereco_linha1 or "—" }}</div>
+          <div>{{ d.emit_endereco_linha2 or "" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="top-grid">
+
+      <div class="box">
+        <h2>Dados do Cliente</h2>
+        <div class="kv">
+          <div class="k">Cliente:</div><div class="v">{{ d.dest_nome or "—" }}</div>
+          <div class="k">CPF/CNPJ:</div><div class="v">{{ d.dest_doc or "—" }}</div>
+          <div class="k">Endereço:</div>
+          <div class="v">
+            {{ d.dest_endereco_linha1 or "—" }}<br/>
+            {{ d.dest_endereco_linha2 or "" }}
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <h2>Informações</h2>
+        <div class="kv">
+          <div class="k">Cod. Assinante:</div><div class="v">{{ d.cod_assinante or "—" }}</div>
+          <div class="k">Contrato:</div><div class="v">{{ d.contrato or "—" }}</div>
+          <div class="k">Telefone:</div><div class="v">{{ d.telefone or "—" }}</div>
+          <div class="k">Período:</div><div class="v">{{ d.periodo or "—" }}</div>
+        </div>
+
+        <div class="ref-row">
+          <div class="ref-card">
+            <div class="title">Referência (Ano/Mês)</div>
+            <div>{{ d.referencia or "—" }}</div>
+          </div>
+          <div class="ref-card">
+            <div class="title">Vencimento</div>
+            <div>{{ d.vencimento or "—" }}</div>
+          </div>
+        </div>
+
+        <div class="ref-row">
+          <div class="ref-card" style="grid-column:1 / span 2;">
+            <div class="title">Total a Pagar</div>
+            <div><b>{{ d.total_pagar_fmt or d.total_fmt or "—" }}</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="qr-area">
+          <div class="qr">QR CODE (visual no PDF)</div>
+
+          <div class="kv">
+            <div class="k">Nota Fiscal Fatura Nº</div><div class="v">{{ d.nNF or "—" }}</div>
+            <div class="k">Série</div><div class="v">{{ d.serie or "—" }}</div>
+            <div class="k">Data de Emissão</div><div class="v">{{ d.dhEmi_fmt or d.dhEmi or "—" }}</div>
+
+            <div class="k">Chave de Acesso</div>
+            <div class="v">{{ d.chNFCom_fmt or d.chNFCom or "—" }}</div>
+
+            <div class="k">Protocolo de Autorização</div>
+            <div class="v">{{ d.prot_num or "—" }}<br/>{{ d.prot_data_fmt or d.prot_data or "" }}</div>
+          </div>
+
+          <div class="mini">
+            {{ d.qrcode_url or "" }}
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="contrib">
+      <b>ÁREA DO CONTRIBUINTE:</b><br/>
+      {{ d.area_contribuinte or "" }}
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:90px;">Cod.</th>
+          <th>Itens</th>
+          <th style="width:70px;">UN</th>
+          <th style="width:90px;">Qtd</th>
+          <th style="width:90px;">V. Unit.</th>
+          <th style="width:90px;">Total</th>
+          <th style="width:95px;">PIS/COFINS</th>
+          <th style="width:85px;">BC. ICMS</th>
+          <th style="width:70px;">Aliq</th>
+          <th style="width:85px;">V. ICMS</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for it in d.itens %}
+        <tr>
+          <td>{{ it.cClass or "" }}</td>
+          <td>{{ it.xProd or "" }}</td>
+          <td class="center">{{ it.un or "" }}</td>
+          <td class="num">{{ it.qtd_fmt or it.qtd or "" }}</td>
+          <td class="num">{{ it.vUnit_fmt or it.vUnit or "" }}</td>
+          <td class="num">{{ it.vTotal_fmt or it.vTotal or "" }}</td>
+          <td class="num">{{ it.pis_cofins_fmt or it.pis_cofins or "" }}</td>
+          <td class="num">{{ it.bc_icms_fmt or it.bc_icms or "" }}</td>
+          <td class="num">{{ it.aliq_icms_fmt or it.aliq_icms or "" }}</td>
+          <td class="num">{{ it.v_icms_fmt or it.v_icms or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="bottom-grid">
+      <div class="table-like">
+        <div class="row"><div class="cell k">Valor NFF</div><div class="cell v">{{ d.total_fmt or "—" }}</div></div>
+        <div class="row"><div class="cell k">Total Base de Cálculo</div><div class="cell v">{{ d.bc_total_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">Valor ICMS</div><div class="cell v">{{ d.icms_total_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">Valor Isento</div><div class="cell v">{{ d.isento_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">Valor Outros</div><div class="cell v">{{ d.outros_fmt or "" }}</div></div>
+      </div>
+
+      <div class="table-like">
+        <div class="row"><div class="cell k" style="grid-column:1 / span 2; text-align:center;">Informações dos Tributos</div></div>
+        <div class="row"><div class="cell k">PIS</div><div class="cell v">{{ d.pis_total_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">COFINS</div><div class="cell v">{{ d.cofins_total_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">FUST</div><div class="cell v">{{ d.fust_total_fmt or "" }}</div></div>
+        <div class="row"><div class="cell k">FUNTTEL</div><div class="cell v">{{ d.funttel_total_fmt or "" }}</div></div>
+      </div>
+
+      <div class="table-like">
+        <div class="row"><div class="cell k" style="grid-column:1 / span 2; text-align:center;">Reservado ao Fisco</div></div>
+        <div class="row"><div class="cell" style="grid-column:1 / span 2; min-height:170px;">{{ d.reservado_fisco or "" }}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sec-title">Informações Complementares</div>
+      <div class="sec-body">{{ d.info_complementar or "" }}</div>
+    </div>
+
+    <div class="barcode-area">
+      <div class="col">
+        <div class="barcode-title">Nº Identificador de Débito Automático</div>
+        <div style="text-align:center;">{{ d.debito_auto_id or "" }}</div>
+      </div>
+
+      <div class="col">
+        <div class="barcode-title">Código de Barras</div>
+        <div class="barcode">{{ d.codigo_barras_vis or "||||||||||||||||||||||||||||||||||||||||||||" }}</div>
+        <div class="linha-digitavel">{{ d.linha_digitavel or "" }}</div>
+      </div>
+
+      <div class="col pix">PIX</div>
+    </div>
+
+    <div class="section" style="margin-top:12px;">
+      <div class="sec-title">Área do Contribuinte e Determinações da ANATEL</div>
+      <div class="sec-body">{{ d.anatel_texto or "" }}</div>
+    </div>
+
+  </div>
+</body>
+</html>
