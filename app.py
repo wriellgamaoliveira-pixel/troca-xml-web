@@ -1,128 +1,134 @@
+from __future__ import annotations
+
 import io
 from flask import Flask, render_template, request, send_file, redirect, url_for, flash
 
 from core import (
     carregar_cclass_lista,
+    cclass_desc_map,
     parse_regras_texto,
     processar_lote_zip,
-    parse_nfcom,
     gerar_csv_de_zip,
-    gerar_resumo_de_zip,   # <<< NOVO
+    gerar_resumo_de_zip,
 )
 
 app = Flask(__name__)
 app.secret_key = "troca-xml"
 
-_CCLASS = None
+_CCLASS_LISTA = None
+_DESC_MAP = None
+
+
+def _load_cclass():
+    global _CCLASS_LISTA, _DESC_MAP
+    if _CCLASS_LISTA is None:
+        _CCLASS_LISTA = carregar_cclass_lista()
+        _DESC_MAP = cclass_desc_map(_CCLASS_LISTA)
+    return _CCLASS_LISTA, _DESC_MAP
 
 
 @app.get("/")
-def home():
+def index():
     return render_template("index.html")
 
 
-# ================= LOTE =================
+# =========================
+# LOTE
+# =========================
 @app.get("/lote")
 def lote():
-    global _CCLASS
-    if _CCLASS is None:
-        _CCLASS = carregar_cclass_lista()
-    return render_template("lote.html", cclass_lista=_CCLASS)
+    cclass_lista, _ = _load_cclass()
+    return render_template("lote.html", cclass_lista=cclass_lista)
 
 
 @app.post("/lote/processar")
 def lote_processar():
-    zipf = request.files.get("zip_xmls")
-    if not zipf:
-        flash("Envie um ZIP", "erro")
-        return redirect(url_for("lote"))
+    cclass_lista, _ = _load_cclass()
 
-    regras = parse_regras_texto(request.form.get("regras_cclass_cfop", ""))
-    remover_desc = bool(request.form.get("remover_desconto"))
+    fzip = request.files.get("zip_xmls")
+    if not fzip:
+        flash("Envie um arquivo .zip")
+        return render_template("lote.html", cclass_lista=cclass_lista)
+
+    remover_desconto = bool(request.form.get("remover_desconto"))
     remover_outros = bool(request.form.get("remover_outros"))
+    regras_txt = request.form.get("regras_txt", "")
+    regras = parse_regras_texto(regras_txt)
 
-    out = processar_lote_zip(zipf.read(), regras, remover_desc, remover_outros)
+    out_zip = processar_lote_zip(
+        fzip.read(),
+        regras=regras,
+        remover_desconto=remover_desconto,
+        remover_outros=remover_outros,
+    )
 
     return send_file(
-        io.BytesIO(out),
+        io.BytesIO(out_zip),
         as_attachment=True,
         download_name="resultado.zip",
-        mimetype="application/zip"
+        mimetype="application/zip",
     )
 
 
-# ================= NOTA =================
-@app.get("/nota")
-def nota():
-    return render_template("nota.html")
-
-
-@app.post("/nota/visualizar")
-def nota_visualizar():
-    xml = request.files.get("xml_unico")
-    if not xml:
-        flash("Envie um XML", "erro")
-        return redirect(url_for("nota"))
-
-    dados = parse_nfcom(xml.read())
-
-    # IMPORTANTÍSSIMO:
-    # seu template resultado.html usa variável "d" (não "dados")
-    return render_template("resultado.html", d=dados)
-
-
-# ================= CSV =================
+# =========================
+# CSV
+# =========================
 @app.get("/csv")
 def csv_page():
-    exemplo = "Numero;nNF\nSerie;serie"
-    return render_template("csv.html", mapping_exemplo=exemplo)
+    return render_template("csv.html")
 
 
 @app.post("/csv/gerar")
 def csv_gerar():
-    zipf = request.files.get("zip_xmls")
-    if not zipf:
-        flash("Envie um ZIP", "erro")
-        return redirect(url_for("csv_page"))
+    fzip = request.files.get("zip_xmls")
+    if not fzip:
+        flash("Envie um arquivo .zip")
+        return render_template("csv.html")
 
-    mapping_txt = request.form.get("mapping", "").strip()
-    if not mapping_txt:
-        flash("Preencha o mapeamento", "erro")
-        return redirect(url_for("csv_page"))
-
+    mapping_txt = request.form.get("mapping_txt", "")
     mapping = []
-    for l in mapping_txt.splitlines():
-        if ";" not in l:
+    for l in (mapping_txt or "").splitlines():
+        l = l.strip()
+        if not l or l.startswith("#"):
             continue
-        a, b = l.split(";", 1)
-        mapping.append((a.strip(), b.strip()))
+        if ";" in l:
+            a, b = [x.strip() for x in l.split(";", 1)]
+            if a and b:
+                mapping.append((a, b))
 
-    out = gerar_csv_de_zip(zipf.read(), mapping)
+    if not mapping:
+        flash("Informe o mapeamento no formato CABEÇALHO;TAG")
+        return render_template("csv.html")
+
+    out = gerar_csv_de_zip(fzip.read(), mapping)
 
     return send_file(
         io.BytesIO(out),
         as_attachment=True,
         download_name="relatorio.csv",
-        mimetype="text/csv"
+        mimetype="text/csv",
     )
 
 
-# ================= RESUMO =================
+# =========================
+# RESUMO
+# =========================
 @app.get("/resumo")
-def resumo_page():
-    # abre a tela
+def resumo():
     return render_template("resumo.html", resumo=None)
 
 
 @app.post("/resumo/gerar")
 def resumo_gerar():
-    zipf = request.files.get("zip_xmls")
-    if not zipf:
-        flash("Envie um ZIP", "erro")
-        return redirect(url_for("resumo_page"))
+    _, desc_map = _load_cclass()
 
-    resumo = gerar_resumo_de_zip(zipf.read())
-    return render_template("resumo.html", resumo=resumo)
+    fzip = request.files.get("zip_xmls")
+    if not fzip:
+        flash("Envie um arquivo .zip")
+        return render_template("resumo.html", resumo=None)
+
+    resumo_data = gerar_resumo_de_zip(fzip.read(), desc_map=desc_map)
+    return render_template("resumo.html", resumo=resumo_data)
 
 
 if __name__ == "__main__":
