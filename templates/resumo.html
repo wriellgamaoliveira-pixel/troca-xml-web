@@ -18,7 +18,11 @@
 
 <div class="card">
   <h3>Gráfico (Top 12 cClass)</h3>
-  <canvas id="pizza" height="120"></canvas>
+
+  <!-- trava tamanho do gráfico -->
+  <div style="max-width:520px; height:320px;">
+    <canvas id="pizza" style="width:100%; height:320px;"></canvas>
+  </div>
 </div>
 
 <div class="card">
@@ -45,15 +49,50 @@
   </table>
 </div>
 
+<div class="card">
+  <h3>Totalizadores por Itens (Top 50)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ITENS_DA_NOTA</th>
+        <th>cClass</th>
+        <th>Qtd Itens</th>
+        <th>Valor Total</th>
+        <th>% do Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in resumo.itens_linhas[:50] %}
+      <tr>
+        <td>{{ r.item }}</td>
+        <td>{{ r.cClass }}</td>
+        <td style="text-align:right;">{{ r.qtd_itens }}</td>
+        <td style="text-align:right;">{{ r.v_total_br }}</td>
+        <td style="text-align:right;">{{ r.pct_br }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p style="font-size:12px; opacity:0.8; margin-top:8px;">
+    Mostrando os 50 maiores itens por valor.
+  </p>
+</div>
+
 <script>
   const labels = {{ resumo.labels|tojson }};
   const valores = {{ resumo.valores|tojson }};
+
   const ctx = document.getElementById("pizza");
   new Chart(ctx, {
     type: "pie",
     data: {
       labels: labels,
       datasets: [{ data: valores }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false
     }
   });
 </script>
