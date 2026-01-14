@@ -1,20 +1,89 @@
 {% extends "base.html" %}
 {% block content %}
+
 <h1>Lote (ZIP → ZIP)</h1>
 
-<div class="card">
-  <form action="/lote/processar" method="post" enctype="multipart/form-data">
+<form action="/lote/processar" method="post" enctype="multipart/form-data">
+
+  <div class="card">
     <p><b>Envie um .zip</b> com seus XMLs/TXT:</p>
     <input type="file" name="zip_xmls" accept=".zip" required><br><br>
 
     <label><input type="checkbox" name="remover_desconto"> Remover tags de desconto</label><br>
-    <label><input type="checkbox" name="remover_outros"> Remover tags de “outros”</label><br><br>
+    <label><input type="checkbox" name="remover_outros"> Remover tags de “outros”</label><br>
+  </div>
 
-    <p><b>Regras cClass → CFOP</b> (uma por linha: <code>cClass;CFOP</code>)</p>
-    <textarea name="regras_cclass_cfop" placeholder="060101;5102&#10;110201;5102"></textarea>
+  <div class="card">
+    <h3>Regras cClass → CFOP (por seleção)</h3>
 
-    <br><br>
-    <button class="btn" type="submit">Processar e baixar resultado.zip</button>
-  </form>
-</div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end;">
+      <div>
+        <label><b>cClass</b></label><br>
+        <select id="cclass_select">
+          <option value="">-- selecione um cClass --</option>
+          {% for item in cclass_lista %}
+            <option value="{{ item.code }}">{{ item.code }} - {{ item.desc }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label><b>CFOP</b></label><br>
+        <input id="cfop_input" type="text" inputmode="numeric" placeholder="Ex: 5102"
+               maxlength="4" style="width:120px;">
+      </div>
+
+      <button class="btn" type="button" onclick="adicionarRegra()">Adicionar</button>
+    </div>
+
+    <p style="margin-top:10px; font-size: 13px;">
+      As regras vão aparecer abaixo no formato <code>cClass;CFOP</code>.
+    </p>
+
+    <h3>Lista final de regras</h3>
+    <textarea
+      id="regras_box"
+      name="regras_cclass_cfop"
+      placeholder="060101;5102&#10;110201;5102"
+      style="width:100%; min-height:140px;"
+    ></textarea>
+
+    <p style="font-size: 13px; opacity: 0.8;">
+      (Opcional) Você pode editar manualmente o texto acima. Uma regra por linha.
+    </p>
+  </div>
+
+  <button class="btn" type="submit">Processar e baixar resultado.zip</button>
+
+</form>
+
+<script>
+function adicionarRegra() {
+  const cclass = document.getElementById("cclass_select").value.trim();
+  const cfop = document.getElementById("cfop_input").value.trim();
+  const box = document.getElementById("regras_box");
+
+  if (!cclass) {
+    alert("Selecione um cClass.");
+    return;
+  }
+  if (!/^\d{4}$/.test(cfop)) {
+    alert("Informe um CFOP com 4 dígitos (ex: 5102).");
+    return;
+  }
+
+  const nova = `${cclass};${cfop}`;
+  const linhas = (box.value || "").split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+
+  if (linhas.includes(nova)) {
+    alert("Essa regra já existe.");
+    return;
+  }
+
+  linhas.push(nova);
+  box.value = linhas.join("\n");
+  document.getElementById("cfop_input").value = "";
+}
+</script>
+
 {% endblock %}
