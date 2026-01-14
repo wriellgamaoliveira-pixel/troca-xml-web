@@ -1,21 +1,13 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-    <meta charset="utf-8">
-    <title>Troca XML Web</title>
-</head>
-<body>
-
-<h1>Processador de XML</h1>
-
-<form action="/processar" method="post" enctype="multipart/form-data">
-    <p>Envie um arquivo .zip com seus XMLs:</p>
-
-    <input type="file" name="zip_xmls" accept=".zip" required>
-    <br><br>
-
-    <button type="submit">Processar</button>
-</form>
-
-</body>
-</html>
+{% extends "base.html" %}
+{% block content %}
+<h1>Troca XML Web</h1>
+<div class="card">
+  <p>Escolha uma área no menu:</p>
+  <ul>
+    <li><b>Lote</b>: envia um ZIP e recebe um ZIP com XMLs editados</li>
+    <li><b>Nota Única</b>: envia 1 XML, visualiza, baixa PDF ou XML editado</li>
+    <li><b>CSV</b>: envia ZIP + mapeamento e baixa o CSV</li>
+    <li><b>Resumo</b>: envia ZIP e vê totais por cClass + gráfico pizza</li>
+  </ul>
+</div>
+{% endblock %}

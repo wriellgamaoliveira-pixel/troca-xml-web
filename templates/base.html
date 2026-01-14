@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title if title else "Troca XML Web" }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:Arial, sans-serif; margin: 24px;}
+    nav a{margin-right:12px;}
+    .card{border:1px solid #ddd; border-radius:10px; padding:16px; margin:12px 0;}
+    textarea{width:100%; min-height:140px;}
+    table{border-collapse:collapse; width:100%;}
+    th,td{border:1px solid #ddd; padding:8px; text-align:left;}
+    .erro{background:#ffe8e8; border:1px solid #ffb3b3; padding:10px; border-radius:8px;}
+    .ok{background:#e8fff0; border:1px solid #b3ffd0; padding:10px; border-radius:8px;}
+    .btn{padding:10px 14px; border:1px solid #333; background:#fff; border-radius:8px; cursor:pointer;}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<nav>
+  <a href="/">Início</a>
+  <a href="/lote">Lote</a>
+  <a href="/nota">Nota Única</a>
+  <a href="/csv">CSV</a>
+  <a href="/resumo">Resumo</a>
+</nav>
+
+<hr>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="{{ 'erro' if category=='erro' else 'ok' }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+
+</body>
+</html>

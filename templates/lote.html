@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Lote (ZIP → ZIP)</h1>
+
+<div class="card">
+  <form action="/lote/processar" method="post" enctype="multipart/form-data">
+    <p><b>Envie um .zip</b> com seus XMLs/TXT:</p>
+    <input type="file" name="zip_xmls" accept=".zip" required><br><br>
+
+    <label><input type="checkbox" name="remover_desconto"> Remover tags de desconto</label><br>
+    <label><input type="checkbox" name="remover_outros"> Remover tags de “outros”</label><br><br>
+
+    <p><b>Regras cClass → CFOP</b> (uma por linha: <code>cClass;CFOP</code>)</p>
+    <textarea name="regras_cclass_cfop" placeholder="060101;5102&#10;110201;5102"></textarea>
+
+    <br><br>
+    <button class="btn" type="submit">Processar e baixar resultado.zip</button>
+  </form>
+</div>
+{% endblock %}

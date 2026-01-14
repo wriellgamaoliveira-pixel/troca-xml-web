@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Nota Única</h1>
+
+<div class="card">
+  <form action="/nota/visualizar" method="post" enctype="multipart/form-data">
+    <p><b>Envie 1 XML</b>:</p>
+    <input type="file" name="xml_unico" accept=".xml" required>
+    <br><br>
+    <button class="btn" type="submit">Visualizar</button>
+  </form>
+</div>
+
+<div class="card">
+  <form action="/nota/pdf" method="post" enctype="multipart/form-data">
+    <p><b>Baixar PDF</b> do XML:</p>
+    <input type="file" name="xml_unico" accept=".xml" required>
+    <br><br>
+    <button class="btn" type="submit">Baixar PDF</button>
+  </form>
+</div>
+
+<div class="card">
+  <form action="/nota/xml_editado" method="post" enctype="multipart/form-data">
+    <p><b>Baixar XML editado</b> (aplica regras):</p>
+    <input type="file" name="xml_unico" accept=".xml" required><br><br>
+
+    <label><input type="checkbox" name="remover_desconto"> Remover tags de desconto</label><br>
+    <label><input type="checkbox" name="remover_outros"> Remover tags de “outros”</label><br><br>
+
+    <p><b>Regras cClass → CFOP</b> (cClass;CFOP por linha)</p>
+    <textarea name="regras_cclass_cfop" placeholder="060101;5102"></textarea>
+    <br><br>
+
+    <button class="btn" type="submit">Baixar XML editado</button>
+  </form>
+</div>
+
+{% endblock %}

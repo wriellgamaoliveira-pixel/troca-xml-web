@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ titulo }}</h1>
+
+<div class="card">
+  <p><b>Chave:</b> {{ dados.chave }}</p>
+  <p><b>Número/Série:</b> {{ dados.nNF }} / {{ dados.serie }}</p>
+  <p><b>Emissão:</b> {{ dados.dhEmi }}</p>
+  <p><b>Emitente:</b> {{ dados.emit_nome }}</p>
+  <p><b>Destinatário:</b> {{ dados.dest_nome }}</p>
+  <p><b>vNF:</b> {{ dados.vNF }} | <b>vICMS:</b> {{ dados.vICMS }} | <b>vDesc:</b> {{ dados.vDesc }} | <b>vOutro:</b> {{ dados.vOutro }}</p>
+</div>
+
+<div class="card">
+  <h3>Itens</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>cClass</th>
+        <th>Descrição</th>
+        <th>Qtd</th>
+        <th>Valor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in dados.itens %}
+      <tr>
+        <td>{{ it.cClass }}</td>
+        <td>{{ it.xProd }}</td>
+        <td>{{ it.qCom }}</td>
+        <td>{{ it.vProd }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

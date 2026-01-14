@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Geração de CSV</h1>
+
+<div class="card">
+  <form action="/csv/gerar" method="post" enctype="multipart/form-data">
+    <p><b>Envie um .zip</b> com XMLs:</p>
+    <input type="file" name="zip_xmls" accept=".zip" required><br><br>
+
+    <p><b>Mapping</b> (uma linha por coluna: <code>Cabeçalho;campo</code>)</p>
+    <textarea name="mapping">{{ mapping_exemplo }}</textarea>
+
+    <br><br>
+    <button class="btn" type="submit">Gerar e baixar relatorio.csv</button>
+  </form>
+</div>
+
+<div class="card">
+  <p><b>Exemplos de campos</b>:</p>
+  <ul>
+    <li><code>nNF</code>, <code>serie</code>, <code>chNFCom</code></li>
+    <li><code>emit/xNome</code>, <code>dest/xNome</code></li>
+    <li><code>total/vNF</code> (caminhos simples)</li>
+  </ul>
+</div>
+
+{% endblock %}
