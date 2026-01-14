@@ -14,7 +14,6 @@ import xml.etree.ElementTree as ET
 # Util
 # =========================
 def _br_money(v: float) -> str:
-    # 1234.56 -> "R$ 1.234,56"
     s = f"{v:,.2f}"
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
@@ -27,7 +26,8 @@ def _to_float(s: str | None) -> float:
     if not s:
         return 0.0
     # aceita "1234.56" e "1.234,56"
-    s = s.replace(".", "").replace(",", ".") if "," in s else s
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
     try:
         return float(s)
     except Exception:
@@ -35,7 +35,6 @@ def _to_float(s: str | None) -> float:
 
 
 def _strip_namespaces(root: ET.Element) -> ET.Element:
-    # Remove namespaces in-place
     for el in root.iter():
         if "}" in el.tag:
             el.tag = el.tag.split("}", 1)[1]
@@ -43,26 +42,27 @@ def _strip_namespaces(root: ET.Element) -> ET.Element:
 
 
 def _zip_iter_files(zip_bytes: bytes) -> List[Tuple[str, bytes]]:
-    out = []
+    out: List[Tuple[str, bytes]] = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as z:
         for name in z.namelist():
             if name.endswith("/"):
                 continue
-            data = z.read(name)
-            out.append((name, data))
+            out.append((name, z.read(name)))
     return out
+
+
+def _find_parent(root: ET.Element, child: ET.Element) -> ET.Element | None:
+    for p in root.iter():
+        for c in list(p):
+            if c is child:
+                return p
+    return None
 
 
 # =========================
 # cClass (Excel)
 # =========================
 def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Dict[str, str]]:
-    """
-    Retorna lista para dropdown:
-      [{"code":"0600601","desc":"..."}]
-    """
-
-    # tenta caminhos comuns (pra evitar dor no Render)
     candidatos = [
         Path(xlsx_path),
         Path("Tabela-cClass.xlsx"),
@@ -74,7 +74,6 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
             caminho = c
             break
     if caminho is None:
-        # sem excel: devolve lista vazia (o site ainda roda)
         return []
 
     import openpyxl
@@ -82,7 +81,6 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
     wb = openpyxl.load_workbook(caminho, data_only=True)
     ws = wb.active
 
-    # tenta achar colunas pelo cabeçalho
     header = []
     for col in range(1, ws.max_column + 1):
         header.append(str(ws.cell(1, col).value or "").strip().lower())
@@ -95,14 +93,8 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
                     return i
         return None
 
-    col_code = find_col("cclass", "codigo", "código", "code")
-    col_desc = find_col("descricao", "descrição", "descricao do item", "descrição do item", "desc")
-
-    # fallback: se não achar, assume 1 e 2
-    if col_code is None:
-        col_code = 1
-    if col_desc is None:
-        col_desc = 2
+    col_code = find_col("cclass", "codigo", "código", "code", "grupo/código") or 1
+    col_desc = find_col("descricao", "descrição", "desc") or 2
 
     lista: List[Dict[str, str]] = []
     for row in range(2, ws.max_row + 1):
@@ -119,31 +111,24 @@ def cclass_desc_map(cclass_lista: List[Dict[str, str]]) -> Dict[str, str]:
 
 
 # =========================
-# Regras (texto)
+# Regras (texto) cClass;CFOP
 # =========================
 def parse_regras_texto(txt: str) -> Dict[str, str]:
-    """
-    Formato por linha: cClass;CFOP
-    Ex:
-      060101;5102
-      110201;5102
-    """
     regras: Dict[str, str] = {}
     for line in (txt or "").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # aceita ; ou , ou :
         if ";" in line:
-            parts = [p.strip() for p in line.split(";", 1)]
+            a, b = [x.strip() for x in line.split(";", 1)]
         elif "," in line:
-            parts = [p.strip() for p in line.split(",", 1)]
+            a, b = [x.strip() for x in line.split(",", 1)]
         elif ":" in line:
-            parts = [p.strip() for p in line.split(":", 1)]
+            a, b = [x.strip() for x in line.split(":", 1)]
         else:
             continue
-        if len(parts) == 2 and parts[0] and parts[1]:
-            regras[parts[0]] = parts[1]
+        if a and b:
+            regras[a] = b
     return regras
 
 
@@ -164,7 +149,6 @@ def aplicar_regras_xml_str(
     if remover_outros:
         novo = re.sub(r"<vOutro>.*?</vOutro>", "", novo, flags=re.DOTALL)
 
-    # Insere CFOP logo após cClass quando não existir CFOP em seguida
     for cclass, cfop in regras.items():
         padrao = rf"(<cClass>{re.escape(cclass)}</cClass>)(?!\s*<CFOP>)"
         novo = re.sub(padrao, rf"\1<CFOP>{cfop}</CFOP>", novo)
@@ -178,12 +162,9 @@ def processar_lote_zip(
     remover_desconto: bool = False,
     remover_outros: bool = False,
 ) -> bytes:
-    """
-    Entrada: ZIP com XML/TXT
-    Saída: ZIP com XML editados (TXT é copiado)
-    """
     in_files = _zip_iter_files(zip_bytes)
     mem = io.BytesIO()
+
     with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for name, data in in_files:
             low = name.lower()
@@ -193,7 +174,6 @@ def processar_lote_zip(
                     s2 = aplicar_regras_xml_str(s, regras, remover_desconto, remover_outros)
                     zout.writestr(name, s2.encode("utf-8"))
                 except Exception:
-                    # se falhar, copia original
                     zout.writestr(name, data)
             else:
                 zout.writestr(name, data)
@@ -203,60 +183,54 @@ def processar_lote_zip(
 
 
 # =========================
-# Parse NFCom (para Nota/Resumo)
+# RESUMO / NOTA - Extrair itens (cClass, xProd, vProd)
 # =========================
 @dataclass
 class ItemNF:
     cclass: str
+    xprod: str
     vprod: float
 
 
-def parse_nfcom(xml_bytes: bytes) -> List[ItemNF]:
-    """
-    Extrai itens com cClass e vProd.
-    Remove namespaces e tenta associar vProd ao mesmo "bloco" do cClass.
-    """
+def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemNF]:
     root = ET.fromstring(xml_bytes)
     root = _strip_namespaces(root)
 
     itens: List[ItemNF] = []
 
-    # pega todos cClass e tenta achar vProd no pai (ou no avô)
     for c_el in root.findall(".//cClass"):
         cclass = (c_el.text or "").strip()
         if not cclass:
             continue
 
         vprod = 0.0
+        xprod = ""
 
         parent = _find_parent(root, c_el)
         if parent is not None:
+            # xProd e vProd normalmente ficam no mesmo bloco
+            xp = parent.find(".//xProd")
+            if xp is not None and (xp.text or "").strip():
+                xprod = (xp.text or "").strip()
+
             vp = parent.find(".//vProd")
             if vp is not None and (vp.text or "").strip():
                 vprod = _to_float(vp.text)
             else:
+                # fallback: procura no avô
                 grand = _find_parent(root, parent)
                 if grand is not None:
                     vp2 = grand.find(".//vProd")
                     if vp2 is not None and (vp2.text or "").strip():
                         vprod = _to_float(vp2.text)
 
-        itens.append(ItemNF(cclass=cclass, vprod=vprod))
+        itens.append(ItemNF(cclass=cclass, xprod=xprod, vprod=vprod))
 
     return itens
 
 
-def _find_parent(root: ET.Element, child: ET.Element) -> ET.Element | None:
-    # ElementTree não guarda parent. Faz busca linear.
-    for p in root.iter():
-        for c in list(p):
-            if c is child:
-                return p
-    return None
-
-
 # =========================
-# RESUMO (ZIP -> Totais por cClass)
+# RESUMO (ZIP -> Totais por cClass + Totais por Itens)
 # =========================
 def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None) -> dict:
     desc_map = desc_map or {}
@@ -265,22 +239,33 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     total_arquivos = len(arquivos)
 
     por_cclass: Dict[str, Dict[str, float]] = {}
+    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}  # (xProd, cClass)
     total_geral = 0.0
 
     for _, xmlb in arquivos:
         try:
-            itens = parse_nfcom(xmlb)
+            itens = parse_nfcom_itens(xmlb)
         except Exception:
             continue
 
         for it in itens:
             cc = it.cclass
+            v = float(it.vprod)
+            total_geral += v
+
+            # ---- por cClass
             por_cclass.setdefault(cc, {"qtd_itens": 0.0, "v_total": 0.0})
             por_cclass[cc]["qtd_itens"] += 1
-            por_cclass[cc]["v_total"] += float(it.vprod)
-            total_geral += float(it.vprod)
+            por_cclass[cc]["v_total"] += v
 
-    # monta linhas ordenadas
+            # ---- por item (xProd + cClass)
+            item_nome = (it.xprod or "(sem descrição)").strip()
+            key = (item_nome, cc)
+            por_item.setdefault(key, {"qtd_itens": 0.0, "v_total": 0.0})
+            por_item[key]["qtd_itens"] += 1
+            por_item[key]["v_total"] += v
+
+    # ---- tabela por cClass
     linhas = []
     for cc, agg in por_cclass.items():
         v_total = float(agg["v_total"])
@@ -297,10 +282,27 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
                 "pct_br": f"{pct:.2f}".replace(".", ","),
             }
         )
-
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
-    # top 12 pro gráfico
+    # ---- tabela por itens
+    itens_linhas = []
+    for (xprod, cc), agg in por_item.items():
+        v_total = float(agg["v_total"])
+        qtd = int(agg["qtd_itens"])
+        pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
+        itens_linhas.append(
+            {
+                "item": xprod,
+                "cClass": cc,
+                "qtd_itens": qtd,
+                "v_total": v_total,
+                "v_total_br": _br_money(v_total),
+                "pct_br": f"{pct:.2f}".replace(".", ","),
+            }
+        )
+    itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
+
+    # ---- gráfico top 12 cClass
     top = linhas[:12]
     labels = [f'{r["cClass"]}' for r in top]
     valores = [round(float(r["v_total"]), 2) for r in top]
@@ -312,6 +314,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
         "linhas": linhas,
         "labels": labels,
         "valores": valores,
+        "itens_linhas": itens_linhas,  # <<< NOVO
     }
 
 
@@ -319,10 +322,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
 # CSV (ZIP -> CSV)
 # =========================
 def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
-    """
-    mapping: [(cabecalho, tag_xml), ...]
-    Gera 1 linha por XML.
-    """
     arquivos = [(n, b) for (n, b) in _zip_iter_files(zip_bytes) if n.lower().endswith(".xml")]
 
     bio = io.StringIO()
