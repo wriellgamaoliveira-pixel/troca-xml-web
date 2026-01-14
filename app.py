@@ -7,6 +7,7 @@ from core import (
     processar_lote_zip,
     parse_nfcom,
     gerar_csv_de_zip,
+    gerar_resumo_de_zip,   # <<< NOVO
 )
 
 app = Flask(__name__)
@@ -36,7 +37,7 @@ def lote_processar():
         flash("Envie um ZIP", "erro")
         return redirect(url_for("lote"))
 
-    regras = parse_regras_texto(request.form.get("regras_cclass_cfop"))
+    regras = parse_regras_texto(request.form.get("regras_cclass_cfop", ""))
     remover_desc = bool(request.form.get("remover_desconto"))
     remover_outros = bool(request.form.get("remover_outros"))
 
@@ -59,8 +60,15 @@ def nota():
 @app.post("/nota/visualizar")
 def nota_visualizar():
     xml = request.files.get("xml_unico")
+    if not xml:
+        flash("Envie um XML", "erro")
+        return redirect(url_for("nota"))
+
     dados = parse_nfcom(xml.read())
-    return render_template("resultado.html", dados=dados)
+
+    # IMPORTANTÍSSIMO:
+    # seu template resultado.html usa variável "d" (não "dados")
+    return render_template("resultado.html", d=dados)
 
 
 # ================= CSV =================
@@ -73,9 +81,21 @@ def csv_page():
 @app.post("/csv/gerar")
 def csv_gerar():
     zipf = request.files.get("zip_xmls")
-    mapping = [(l.split(";")[0], l.split(";")[1])
-               for l in request.form.get("mapping").splitlines()
-               if ";" in l]
+    if not zipf:
+        flash("Envie um ZIP", "erro")
+        return redirect(url_for("csv_page"))
+
+    mapping_txt = request.form.get("mapping", "").strip()
+    if not mapping_txt:
+        flash("Preencha o mapeamento", "erro")
+        return redirect(url_for("csv_page"))
+
+    mapping = []
+    for l in mapping_txt.splitlines():
+        if ";" not in l:
+            continue
+        a, b = l.split(";", 1)
+        mapping.append((a.strip(), b.strip()))
 
     out = gerar_csv_de_zip(zipf.read(), mapping)
 
@@ -85,6 +105,24 @@ def csv_gerar():
         download_name="relatorio.csv",
         mimetype="text/csv"
     )
+
+
+# ================= RESUMO =================
+@app.get("/resumo")
+def resumo_page():
+    # abre a tela
+    return render_template("resumo.html", resumo=None)
+
+
+@app.post("/resumo/gerar")
+def resumo_gerar():
+    zipf = request.files.get("zip_xmls")
+    if not zipf:
+        flash("Envie um ZIP", "erro")
+        return redirect(url_for("resumo_page"))
+
+    resumo = gerar_resumo_de_zip(zipf.read())
+    return render_template("resumo.html", resumo=resumo)
 
 
 if __name__ == "__main__":
