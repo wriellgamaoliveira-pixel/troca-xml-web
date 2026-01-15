@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from flask import Flask, render_template, request, send_file, redirect, url_for, flash
+from flask import Flask, render_template, request, send_file, flash
 
 from core import (
     carregar_cclass_lista,
@@ -10,6 +10,7 @@ from core import (
     processar_lote_zip,
     gerar_csv_de_zip,
     gerar_resumo_de_zip,
+    gerar_dados_nota_xml,  # <<< NOTA
 )
 
 app = Flask(__name__)
@@ -68,6 +69,32 @@ def lote_processar():
         download_name="resultado.zip",
         mimetype="application/zip",
     )
+
+
+# =========================
+# NOTA ÚNICA (VISUALIZAÇÃO)
+# =========================
+@app.get("/nota")
+def nota():
+    # Página com upload do XML (template nota.html)
+    return render_template("nota.html")
+
+
+@app.post("/nota/visualizar")
+def nota_visualizar():
+    fxml = request.files.get("xml_nota")
+    if not fxml:
+        flash("Envie um XML.")
+        return render_template("nota.html")
+
+    try:
+        xml_bytes = fxml.read()
+        d = gerar_dados_nota_xml(xml_bytes)
+        # Renderiza exatamente o seu template de DANFECom/resultado
+        return render_template("resultado.html", d=d)
+    except Exception as e:
+        flash(f"Erro ao processar XML: {e}")
+        return render_template("nota.html")
 
 
 # =========================
