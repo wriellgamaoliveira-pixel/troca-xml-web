@@ -421,6 +421,7 @@ def gerar_dados_nota_xml(xml_bytes: bytes) -> dict:
     for det in root.findall(".//det"):
         cClass = _findtext(det, ".//cClass", default="")
         xProd = _findtext(det, ".//xProd", default="")
+        cfop = _findtext(det, ".//CFOP", ".//cfop", default="")
         un = _findtext(det, ".//uCom", ".//uUn", default="")
         qtd = _to_float(_findtext(det, ".//qCom", ".//qUn", ".//qtd", default="0"))
         vUnit = _to_float(_findtext(det, ".//vUnCom", ".//vUn", default="0"))
@@ -510,3 +511,4 @@ def gerar_dados_nota_xml(xml_bytes: bytes) -> dict:
         "anatel_texto": "",
     }
     return d
+
