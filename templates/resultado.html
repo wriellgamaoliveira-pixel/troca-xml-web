@@ -147,6 +147,7 @@
       <thead>
         <tr>
           <th style="width:90px;">Cod.</th>
+          <th style="width:70px;">CFOP</th>
           <th>Itens</th>
           <th style="width:70px;">UN</th>
           <th style="width:90px;">Qtd</th>
@@ -164,6 +165,7 @@
         <tr>
           <td>{{ it.cClass or "" }}</td>
           <td>{{ it.xProd or "" }}</td>
+          <td class="center">{{ it.cfop or "" }}</td>
           <td class="center">{{ it.un or "" }}</td>
           <td class="num">{{ it.qtd_fmt or it.qtd or "" }}</td>
           <td class="num">{{ it.vUnit_fmt or it.vUnit or "" }}</td>
@@ -228,3 +230,4 @@
   </div>
 </body>
 </html>
+
