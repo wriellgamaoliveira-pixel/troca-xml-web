@@ -18,9 +18,7 @@
 
 <div class="card">
   <h3>Gráfico (Top 12 cClass)</h3>
-
-  <!-- trava tamanho do gráfico -->
-  <div style="max-width:520px; height:320px;">
+  <div style="max-width:520px; max-height:320px;">
     <canvas id="pizza" style="width:100%; height:320px;"></canvas>
   </div>
 </div>
@@ -50,39 +48,110 @@
 </div>
 
 <div class="card">
-  <h3>Totalizadores por Itens (Top 50)</h3>
+  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+    <h3 style="margin:0;">Tabela de Itens (Top 50)</h3>
+    <div style="display:flex; gap:10px;">
+      <button type="button" class="btn" onclick="expandirTodos()">Expandir Todos</button>
+      <button type="button" class="btn" onclick="recolherTodos()">Recolher Todos</button>
+    </div>
+  </div>
+
+  <style>
+    .acc-toggle {
+      cursor: pointer;
+      user-select: none;
+      font-weight: bold;
+      display: inline-block;
+      width: 20px;
+      text-align: center;
+    }
+    tr.acc-detalhe {
+      background: #f6f6f6;
+    }
+    .acc-box {
+      padding: 10px;
+      border-left: 3px solid #ddd;
+    }
+    table.table-interna {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 13px;
+    }
+    table.table-interna th, table.table-interna td {
+      border: 1px solid #ddd;
+      padding: 6px;
+    }
+    .num { text-align:right; }
+  </style>
+
   <table>
     <thead>
       <tr>
-        <th>ITENS_DA_NOTA</th>
-        <th>cClass</th>
-        <th>Qtd Itens</th>
-        <th>Valor Total</th>
-        <th>% do Total</th>
+        <th style="width:28px;"></th>
+        <th>Item</th>
+        <th style="width:90px;">cClass</th>
+        <th style="width:90px;">Qtd Itens</th>
+        <th style="width:140px;">Valor Total</th>
+        <th style="width:80px;">%</th>
       </tr>
     </thead>
     <tbody>
-      {% for r in resumo.itens_linhas[:50] %}
+      {% for it in resumo.itens_linhas %}
+      {% set row_id = "acc_" ~ loop.index0 %}
       <tr>
-        <td>{{ r.item }}</td>
-        <td>{{ r.cClass }}</td>
-        <td style="text-align:right;">{{ r.qtd_itens }}</td>
-        <td style="text-align:right;">{{ r.v_total_br }}</td>
-        <td style="text-align:right;">{{ r.pct_br }}%</td>
+        <td>
+          <span class="acc-toggle" id="{{ row_id }}_ico" onclick="toggleAcc('{{ row_id }}')">▶</span>
+        </td>
+        <td>{{ it.item }}</td>
+        <td>{{ it.cClass }}</td>
+        <td class="num">{{ it.qtd_itens }}</td>
+        <td class="num">{{ it.v_total_br }}</td>
+        <td class="num">{{ it.pct_br }}%</td>
+      </tr>
+
+      <tr class="acc-detalhe" id="{{ row_id }}" style="display:none;">
+        <td colspan="6">
+          <div class="acc-box">
+            <b>Notas fiscais relacionadas</b>
+            {% if it.notas and it.notas|length > 0 %}
+              <table class="table-interna">
+                <thead>
+                  <tr>
+                    <th style="width:90px;">nNF</th>
+                    <th>Emitente</th>
+                    <th style="width:110px;">Emissão</th>
+                    <th style="width:140px;">Valor do item</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for n in it.notas %}
+                  <tr>
+                    <td>{{ n.nNF }}</td>
+                    <td>{{ n.xNome }}</td>
+                    <td>{{ n.dhEmi_fmt }}</td>
+                    <td class="num">{{ n.vProd_br }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <div style="margin-top:8px; font-size:13px; opacity:0.85;">
+                Nenhuma nota encontrada para este item.
+              </div>
+            {% endif %}
+          </div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-
-  <p style="font-size:12px; opacity:0.8; margin-top:8px;">
-    Mostrando os 50 maiores itens por valor.
-  </p>
 </div>
 
 <script>
+  // Gráfico
   const labels = {{ resumo.labels|tojson }};
   const valores = {{ resumo.valores|tojson }};
-
   const ctx = document.getElementById("pizza");
   new Chart(ctx, {
     type: "pie",
@@ -95,6 +164,34 @@
       maintainAspectRatio: false
     }
   });
+
+  // Accordion
+  function toggleAcc(id) {
+    const row = document.getElementById(id);
+    const ico = document.getElementById(id + "_ico");
+    const aberto = row.style.display !== "none";
+
+    row.style.display = aberto ? "none" : "table-row";
+    ico.textContent = aberto ? "▶" : "▼";
+  }
+
+  function expandirTodos() {
+    const detalhes = document.querySelectorAll("tr.acc-detalhe");
+    detalhes.forEach(tr => {
+      tr.style.display = "table-row";
+      const ico = document.getElementById(tr.id + "_ico");
+      if (ico) ico.textContent = "▼";
+    });
+  }
+
+  function recolherTodos() {
+    const detalhes = document.querySelectorAll("tr.acc-detalhe");
+    detalhes.forEach(tr => {
+      tr.style.display = "none";
+      const ico = document.getElementById(tr.id + "_ico");
+      if (ico) ico.textContent = "▶";
+    });
+  }
 </script>
 {% endif %}
 
