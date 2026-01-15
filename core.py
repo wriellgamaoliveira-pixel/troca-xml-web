@@ -128,6 +128,17 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
     return lista
 
 
+def cclass_desc_map(lista: List[Dict[str, str]]) -> Dict[str, str]:
+    """Converte a lista do Excel em um dicionário {cClass: descrição}."""
+    out: Dict[str, str] = {}
+    for row in lista or []:
+        code = str(row.get("code") or "").strip()
+        desc = str(row.get("desc") or "").strip()
+        if code:
+            out[code] = desc
+    return out
+
+
 # =========================
 # Regras texto (cClass;CFOP por linha)
 # =========================
@@ -257,6 +268,130 @@ def parse_nfcom(xml_bytes: bytes) -> Dict:
 
 
 # =========================
+# Nota Única (DANFECom) - compatível com resultado.html
+# =========================
+def gerar_dados_nota_xml(xml_bytes: bytes) -> Dict:
+    """Monta um dict com os campos que o template resultado.html espera.
+
+    O layout real da NFCom varia bastante (namespace, posições, tags opcionais).
+    Então aqui é "melhor esforço": busca por tags pelo nome, em qualquer nível.
+    """
+
+    root = ET.fromstring(xml_bytes)
+    root = _strip_namespaces(root)
+
+    def t(*paths: str, default: str = "") -> str:
+        return _findtext(root, *paths, default=default)
+
+    def first_text_by_tag(tagname: str) -> str:
+        # procura o primeiro elemento com .tag == tagname
+        for el in root.iter():
+            if (el.tag or "").lower() == tagname.lower() and (el.text or "").strip():
+                return (el.text or "").strip()
+        return ""
+
+    # Cabeçalho
+    nNF = t(".//nNF", default="")
+    cNF = t(".//cNF", default="")
+    serie = t(".//serie", default="")
+    dhEmi = t(".//dhEmi", ".//dEmi", default="")
+    chNFCom = t(".//chNFCom", ".//chNF", ".//chNFe", default="")
+
+    emit_nome = t(".//emit//xNome", default="")
+    dest_nome = t(".//dest//xNome", default="")
+
+    # Totais (melhor esforço)
+    vNF = _to_float(t(".//total//vNF", ".//vNF", default="0"))
+    vBC = _to_float(t(".//ICMSTot//vBC", ".//vBC", default="0"))
+    vICMS = _to_float(t(".//ICMSTot//vICMS", ".//vICMS", default="0"))
+    vPIS = _to_float(t(".//total//vPIS", ".//vPIS", default="0"))
+    vCOFINS = _to_float(t(".//total//vCOFINS", ".//vCOFINS", default="0"))
+
+    # Itens (det)
+    itens: List[Dict] = []
+    for det in root.findall(".//det"):
+        cClass = _findtext(det, ".//cClass", default="")
+        xProd = _findtext(det, ".//xProd", default="")
+        cfop = _findtext(det, ".//CFOP", ".//cfop", default="")
+
+        un = _findtext(det, ".//uCom", ".//uMed", ".//uTrib", default="")
+        qtd = _to_float(_findtext(det, ".//qCom", ".//qMed", ".//qTrib", default="0"))
+        vUnit = _to_float(_findtext(det, ".//vUnCom", ".//vUnMed", ".//vUnTrib", default="0"))
+        vTotal = _to_float(_findtext(det, ".//vProd", default="0"))
+
+        # Tributos por item (se existirem)
+        pis_item = _to_float(_findtext(det, ".//PIS//vPIS", default="0"))
+        cof_item = _to_float(_findtext(det, ".//COFINS//vCOFINS", default="0"))
+        pis_cofins = pis_item + cof_item
+
+        bc_icms = _to_float(_findtext(det, ".//ICMS//vBC", default="0"))
+        aliq_icms = _to_float(_findtext(det, ".//ICMS//pICMS", default="0"))
+        v_icms = _to_float(_findtext(det, ".//ICMS//vICMS", default="0"))
+
+        itens.append({
+            "cClass": cClass,
+            "cfop": cfop,
+            "xProd": xProd,
+            "un": un,
+            "qtd": qtd,
+            "qtd_fmt": _br_num(qtd, 2) if qtd else "",
+            "vUnit": vUnit,
+            "vUnit_fmt": _br_money(vUnit) if vUnit else "",
+            "vTotal": vTotal,
+            "vTotal_fmt": _br_money(vTotal) if vTotal else "",
+            "pis_cofins": pis_cofins,
+            "pis_cofins_fmt": _br_money(pis_cofins) if pis_cofins else "",
+            "bc_icms": bc_icms,
+            "bc_icms_fmt": _br_money(bc_icms) if bc_icms else "",
+            "aliq_icms": aliq_icms,
+            "aliq_icms_fmt": (_br_num(aliq_icms, 2) + "%") if aliq_icms else "",
+            "v_icms": v_icms,
+            "v_icms_fmt": _br_money(v_icms) if v_icms else "",
+        })
+
+    # Campos extras que o template tenta usar (deixa vazio se não existir)
+    prot_num = first_text_by_tag("nProt")
+    prot_data = first_text_by_tag("dhRecbto") or first_text_by_tag("dhProt")
+
+    return {
+        "nNF": nNF,
+        "cNF": cNF,
+        "serie": serie,
+        "dhEmi": dhEmi,
+        "dhEmi_fmt": _fmt_data(dhEmi),
+        "emit_nome": emit_nome,
+        "dest_nome": dest_nome,
+        "chNFCom": chNFCom,
+        "chNFCom_fmt": chNFCom,
+        "prot_num": prot_num,
+        "prot_data": prot_data,
+        "prot_data_fmt": _fmt_data(prot_data),
+
+        "itens": itens,
+
+        # Totais (formato que o resultado.html já usa)
+        "total": vNF,
+        "total_fmt": _br_money(vNF),
+        "bc_total": vBC,
+        "bc_total_fmt": _br_money(vBC) if vBC else "",
+        "icms_total": vICMS,
+        "icms_total_fmt": _br_money(vICMS) if vICMS else "",
+        "pis_total": vPIS,
+        "pis_total_fmt": _br_money(vPIS) if vPIS else "",
+        "cofins_total": vCOFINS,
+        "cofins_total_fmt": _br_money(vCOFINS) if vCOFINS else "",
+
+        # placeholders (evita KeyError no template)
+        "isento_fmt": "",
+        "outros_fmt": "",
+        "total_pagar_fmt": _br_money(vNF),
+        "qrcode_url": "",
+        "area_contribuinte": "",
+        "vencimento": "",
+    }
+
+
+# =========================
 # CSV (mantido)
 # =========================
 def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
@@ -284,27 +419,39 @@ def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
 # =========================
 @dataclass
 class ItemResumo:
+    """Linha de item já "carimbada" com dados da nota.
+
+    Em NFCom, alguns fornecedores colocam o "contrato" em <cNF>.
+    E para o seu relatório você quer usar:
+      - numero  = <nNF>
+      - contrato = <cNF>
+      - emitente = <dest><xNome>
+    """
+
     cclass: str
     xprod: str
     vprod: float
     nnf: str
-    emitente: str
+    cnf: str
+    dest_nome: str
     dhemi: str
 
 
 def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
     """
-    Extrai itens (xProd, cClass, vProd) + dados da nota (nNF, emit xNome, dhEmi).
+    Extrai itens (xProd, cClass, vProd) + dados da nota (nNF, cNF, dest xNome, dhEmi).
     """
     root = ET.fromstring(xml_bytes)
     root = _strip_namespaces(root)
 
-    ide = root.find(".//ide")
-    emit = root.find(".//emit")
+    # Melhor esforço: algumas NFCom têm ide/emit/dest dentro de infNFCom.
+    ide = root.find(".//ide") or root.find(".//infNFCom") or root
+    dest = root.find(".//dest") or root
 
     nnf = _findtext(ide, ".//nNF", default="")
+    cnf = _findtext(ide, ".//cNF", default="")
     dhemi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
-    emitente = _findtext(emit, ".//xNome", default="")
+    dest_nome = _findtext(dest, ".//xNome", default="")
 
     itens: List[ItemResumo] = []
     for det in root.findall(".//det"):
@@ -321,7 +468,8 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
             xprod=xprod,
             vprod=vprod,
             nnf=nnf,
-            emitente=emitente,
+            cnf=cnf,
+            dest_nome=dest_nome,
             dhemi=dhemi
         ))
     return itens
@@ -347,7 +495,8 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
 
     # notas por item:
     # key_item -> key_nota -> soma vprod daquele item naquela nota
-    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str], float]] = {}
+    # key_nota = (nNF, cNF, dest_xNome, dhEmi)
+    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
 
     for name, data in _zip_iter_files(zip_bytes):
         if not name.lower().endswith(".xml"):
@@ -376,7 +525,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
             por_item[key_item]["v_total"] += v
 
             # notas por item
-            key_nota = (it.nnf or "", it.emitente or "", it.dhemi or "")
+            key_nota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "")
             por_item_notas.setdefault(key_item, {})
             por_item_notas[key_item][key_nota] = por_item_notas[key_item].get(key_nota, 0.0) + v
 
@@ -401,7 +550,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
     labels = [x["cClass"] for x in top]
     valores = [x["v_total"] for x in top]
 
-    # monta itens_linhas (top 50) com notas (accordion)
+    # monta itens_linhas (TODOS os itens diferentes) com notas (accordion)
     itens_linhas = []
     for (xprod, cclass), agg in por_item.items():
         v_total = float(agg["v_total"])
@@ -410,10 +559,11 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
 
         notas_map = por_item_notas.get((xprod, cclass), {})
         notas_list = []
-        for (nnf, emit, dhemi), vnota in notas_map.items():
+        for (nnf, cnf, dest_nome, dhemi), vnota in notas_map.items():
             notas_list.append({
                 "nNF": nnf,
-                "xNome": emit,
+                "cNF": cnf,
+                "xNome": dest_nome,
                 "dhEmi": dhemi,
                 "dhEmi_fmt": _fmt_data(dhemi),
                 "vProd": vnota,
@@ -434,7 +584,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
         })
 
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
-    itens_linhas = itens_linhas[:50]
 
     return {
         "total_arquivos": total_arquivos,
