@@ -19,13 +19,17 @@ def _br_money(v: float) -> str:
     return f"R$ {s}"
 
 
+def _br_num(v: float, casas: int = 2) -> str:
+    s = f"{v:,.{casas}f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def _to_float(s: str | None) -> float:
     if not s:
         return 0.0
     s = str(s).strip()
     if not s:
         return 0.0
-    # aceita "1234.56" e "1.234,56"
     if "," in s:
         s = s.replace(".", "").replace(",", ".")
     try:
@@ -57,6 +61,17 @@ def _find_parent(root: ET.Element, child: ET.Element) -> ET.Element | None:
             if c is child:
                 return p
     return None
+
+
+def _findtext(root: ET.Element, *paths: str, default: str = "") -> str:
+    """
+    Tenta vários caminhos .//tag e devolve o primeiro texto encontrado.
+    """
+    for p in paths:
+        el = root.find(p)
+        if el is not None and (el.text or "").strip():
+            return (el.text or "").strip()
+    return default
 
 
 # =========================
@@ -183,7 +198,7 @@ def processar_lote_zip(
 
 
 # =========================
-# RESUMO / NOTA - Extrair itens (cClass, xProd, vProd)
+# RESUMO - Itens (cClass, xProd, vProd)
 # =========================
 @dataclass
 class ItemNF:
@@ -208,7 +223,6 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemNF]:
 
         parent = _find_parent(root, c_el)
         if parent is not None:
-            # xProd e vProd normalmente ficam no mesmo bloco
             xp = parent.find(".//xProd")
             if xp is not None and (xp.text or "").strip():
                 xprod = (xp.text or "").strip()
@@ -217,7 +231,6 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemNF]:
             if vp is not None and (vp.text or "").strip():
                 vprod = _to_float(vp.text)
             else:
-                # fallback: procura no avô
                 grand = _find_parent(root, parent)
                 if grand is not None:
                     vp2 = grand.find(".//vProd")
@@ -229,9 +242,6 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemNF]:
     return itens
 
 
-# =========================
-# RESUMO (ZIP -> Totais por cClass + Totais por Itens)
-# =========================
 def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None) -> dict:
     desc_map = desc_map or {}
 
@@ -239,7 +249,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     total_arquivos = len(arquivos)
 
     por_cclass: Dict[str, Dict[str, float]] = {}
-    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}  # (xProd, cClass)
+    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
     total_geral = 0.0
 
     for _, xmlb in arquivos:
@@ -253,19 +263,16 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
             v = float(it.vprod)
             total_geral += v
 
-            # ---- por cClass
             por_cclass.setdefault(cc, {"qtd_itens": 0.0, "v_total": 0.0})
             por_cclass[cc]["qtd_itens"] += 1
             por_cclass[cc]["v_total"] += v
 
-            # ---- por item (xProd + cClass)
             item_nome = (it.xprod or "(sem descrição)").strip()
             key = (item_nome, cc)
             por_item.setdefault(key, {"qtd_itens": 0.0, "v_total": 0.0})
             por_item[key]["qtd_itens"] += 1
             por_item[key]["v_total"] += v
 
-    # ---- tabela por cClass
     linhas = []
     for cc, agg in por_cclass.items():
         v_total = float(agg["v_total"])
@@ -284,7 +291,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
         )
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
-    # ---- tabela por itens
     itens_linhas = []
     for (xprod, cc), agg in por_item.items():
         v_total = float(agg["v_total"])
@@ -302,7 +308,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
         )
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
-    # ---- gráfico top 12 cClass
     top = linhas[:12]
     labels = [f'{r["cClass"]}' for r in top]
     valores = [round(float(r["v_total"]), 2) for r in top]
@@ -314,7 +319,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
         "linhas": linhas,
         "labels": labels,
         "valores": valores,
-        "itens_linhas": itens_linhas,  # <<< NOVO
+        "itens_linhas": itens_linhas,
     }
 
 
@@ -343,3 +348,165 @@ def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
         w.writerow(row)
 
     return bio.getvalue().encode("utf-8-sig")
+
+
+# =========================
+# NOTA (gera o dict "d" usado no templates/resultado.html)
+# =========================
+def gerar_dados_nota_xml(xml_bytes: bytes) -> dict:
+    """
+    Monta o dicionário 'd' que o seu template resultado.html espera.
+    Se alguma tag não existir, devolve vazio/— sem quebrar a página.
+    """
+    root = ET.fromstring(xml_bytes)
+    root = _strip_namespaces(root)
+
+    # -------- Emitente
+    emit_nome = _findtext(root, ".//emit//xNome", default="")
+    emit_fantasia = _findtext(root, ".//emit//xFant", default="")
+    emit_cnpj = _findtext(root, ".//emit//CNPJ", ".//emit//CPF", default="")
+    emit_ie = _findtext(root, ".//emit//IE", default="")
+    emit_lgr = _findtext(root, ".//emit//enderEmit//xLgr", default="")
+    emit_nro = _findtext(root, ".//emit//enderEmit//nro", default="")
+    emit_bairro = _findtext(root, ".//emit//enderEmit//xBairro", default="")
+    emit_mun = _findtext(root, ".//emit//enderEmit//xMun", default="")
+    emit_uf = _findtext(root, ".//emit//enderEmit//UF", default="")
+    emit_cep = _findtext(root, ".//emit//enderEmit//CEP", default="")
+
+    emit_endereco_linha1 = " ".join([x for x in [emit_lgr, emit_nro] if x]).strip()
+    emit_endereco_linha2 = " - ".join([x for x in [emit_bairro, emit_mun] if x]).strip()
+    if emit_uf:
+        emit_endereco_linha2 = (emit_endereco_linha2 + f" / {emit_uf}").strip()
+    if emit_cep:
+        emit_endereco_linha2 = (emit_endereco_linha2 + f" - CEP {emit_cep}").strip()
+
+    # -------- Destinatário
+    dest_nome = _findtext(root, ".//dest//xNome", default="")
+    dest_doc = _findtext(root, ".//dest//CNPJ", ".//dest//CPF", default="")
+    dest_lgr = _findtext(root, ".//dest//enderDest//xLgr", default="")
+    dest_nro = _findtext(root, ".//dest//enderDest//nro", default="")
+    dest_bairro = _findtext(root, ".//dest//enderDest//xBairro", default="")
+    dest_mun = _findtext(root, ".//dest//enderDest//xMun", default="")
+    dest_uf = _findtext(root, ".//dest//enderDest//UF", default="")
+    dest_cep = _findtext(root, ".//dest//enderDest//CEP", default="")
+
+    dest_endereco_linha1 = " ".join([x for x in [dest_lgr, dest_nro] if x]).strip()
+    dest_endereco_linha2 = " - ".join([x for x in [dest_bairro, dest_mun] if x]).strip()
+    if dest_uf:
+        dest_endereco_linha2 = (dest_endereco_linha2 + f" / {dest_uf}").strip()
+    if dest_cep:
+        dest_endereco_linha2 = (dest_endereco_linha2 + f" - CEP {dest_cep}").strip()
+
+    # -------- Dados NF
+    nNF = _findtext(root, ".//ide//nNF", default="")
+    serie = _findtext(root, ".//ide//serie", default="")
+    dhEmi = _findtext(root, ".//ide//dhEmi", ".//ide//dEmi", default="")
+    chNFCom = _findtext(root, ".//chNFCom", ".//infNFCom//@Id", default="")
+
+    # Totais básicos
+    vNF = _to_float(_findtext(root, ".//total//vNF", ".//total//ICMSTot//vNF", default="0"))
+    vBC = _to_float(_findtext(root, ".//total//vBC", ".//total//ICMSTot//vBC", default="0"))
+    vICMS = _to_float(_findtext(root, ".//total//vICMS", ".//total//ICMSTot//vICMS", default="0"))
+    vIsento = _to_float(_findtext(root, ".//total//vIsento", default="0"))
+    vOutro = _to_float(_findtext(root, ".//total//vOutro", default="0"))
+
+    # Tributos (se existirem)
+    vPIS = _to_float(_findtext(root, ".//total//vPIS", default="0"))
+    vCOFINS = _to_float(_findtext(root, ".//total//vCOFINS", default="0"))
+    vFUST = _to_float(_findtext(root, ".//total//vFUST", default="0"))
+    vFUNTTEL = _to_float(_findtext(root, ".//total//vFUNTTEL", default="0"))
+
+    # -------- Itens
+    itens = []
+    for det in root.findall(".//det"):
+        cClass = _findtext(det, ".//cClass", default="")
+        xProd = _findtext(det, ".//xProd", default="")
+        un = _findtext(det, ".//uCom", ".//uUn", default="")
+        qtd = _to_float(_findtext(det, ".//qCom", ".//qUn", ".//qtd", default="0"))
+        vUnit = _to_float(_findtext(det, ".//vUnCom", ".//vUn", default="0"))
+        vTotal = _to_float(_findtext(det, ".//vProd", ".//vItem", default="0"))
+
+        # PIS/COFINS (bem genérico)
+        pis = _to_float(_findtext(det, ".//PIS//vPIS", default="0"))
+        cof = _to_float(_findtext(det, ".//COFINS//vCOFINS", default="0"))
+        pis_cof = pis + cof
+
+        bc_icms = _to_float(_findtext(det, ".//ICMS//vBC", default="0"))
+        aliq_icms = _to_float(_findtext(det, ".//ICMS//pICMS", default="0"))
+        v_icms = _to_float(_findtext(det, ".//ICMS//vICMS", default="0"))
+
+        itens.append(
+            {
+                "cClass": cClass,
+                "xProd": xProd,
+                "un": un,
+                "qtd": qtd,
+                "qtd_fmt": _br_num(qtd, 2) if qtd else "",
+                "vUnit": vUnit,
+                "vUnit_fmt": _br_money(vUnit) if vUnit else "",
+                "vTotal": vTotal,
+                "vTotal_fmt": _br_money(vTotal) if vTotal else "",
+                "pis_cofins": pis_cof,
+                "pis_cofins_fmt": _br_money(pis_cof) if pis_cof else "",
+                "bc_icms": bc_icms,
+                "bc_icms_fmt": _br_money(bc_icms) if bc_icms else "",
+                "aliq_icms": aliq_icms,
+                "aliq_icms_fmt": _br_num(aliq_icms, 2) if aliq_icms else "",
+                "v_icms": v_icms,
+                "v_icms_fmt": _br_money(v_icms) if v_icms else "",
+            }
+        )
+
+    d = {
+        # Cabeçalho / emit
+        "emit_fantasia": emit_fantasia,
+        "emit_nome": emit_nome,
+        "emit_cnpj": emit_cnpj,
+        "emit_ie": emit_ie,
+        "emit_endereco_linha1": emit_endereco_linha1,
+        "emit_endereco_linha2": emit_endereco_linha2,
+        # Dest
+        "dest_nome": dest_nome,
+        "dest_doc": dest_doc,
+        "dest_endereco_linha1": dest_endereco_linha1,
+        "dest_endereco_linha2": dest_endereco_linha2,
+        # NF
+        "nNF": nNF,
+        "serie": serie,
+        "dhEmi": dhEmi,
+        "dhEmi_fmt": dhEmi,
+        "chNFCom": chNFCom,
+        "chNFCom_fmt": chNFCom,
+        # Totais
+        "total_fmt": _br_money(vNF) if vNF else "",
+        "total_pagar_fmt": _br_money(vNF) if vNF else "",
+        "bc_total_fmt": _br_money(vBC) if vBC else "",
+        "icms_total_fmt": _br_money(vICMS) if vICMS else "",
+        "isento_fmt": _br_money(vIsento) if vIsento else "",
+        "outros_fmt": _br_money(vOutro) if vOutro else "",
+        "pis_total_fmt": _br_money(vPIS) if vPIS else "",
+        "cofins_total_fmt": _br_money(vCOFINS) if vCOFINS else "",
+        "fust_total_fmt": _br_money(vFUST) if vFUST else "",
+        "funttel_total_fmt": _br_money(vFUNTTEL) if vFUNTTEL else "",
+        # Itens
+        "itens": itens,
+        # Campos que o template usa, mas podem ficar vazios sem quebrar:
+        "qrcode_url": "",
+        "prot_num": "",
+        "prot_data": "",
+        "prot_data_fmt": "",
+        "cod_assinante": "",
+        "contrato": "",
+        "telefone": "",
+        "periodo": "",
+        "referencia": "",
+        "vencimento": "",
+        "area_contribuinte": "",
+        "reservado_fisco": "",
+        "info_complementar": "",
+        "debito_auto_id": "",
+        "codigo_barras_vis": "",
+        "linha_digitavel": "",
+        "anatel_texto": "",
+    }
+    return d
