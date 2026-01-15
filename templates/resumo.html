@@ -49,7 +49,7 @@
 
 <div class="card">
   <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-    <h3 style="margin:0;">Tabela de Itens (Top 50)</h3>
+    <h3 style="margin:0;">Tabela de Itens (Todos os itens)</h3>
     <div style="display:flex; gap:10px;">
       <button type="button" class="btn" onclick="expandirTodos()">Expandir Todos</button>
       <button type="button" class="btn" onclick="recolherTodos()">Recolher Todos</button>
@@ -119,7 +119,8 @@
                 <thead>
                   <tr>
                     <th style="width:90px;">nNF</th>
-                    <th>Emitente</th>
+                    <th style="width:110px;">cNF (Contrato)</th>
+                    <th>Emitente (dest/xNome)</th>
                     <th style="width:110px;">Emissão</th>
                     <th style="width:140px;">Valor do item</th>
                   </tr>
@@ -127,8 +128,9 @@
                 <tbody>
                   {% for n in it.notas %}
                   <tr>
-                    <td>{{ n.nNF }}</td>
-                    <td>{{ n.xNome }}</td>
+                      <td>{{ n.nNF }}</td>
+                      <td>{{ n.cNF }}</td>
+                      <td>{{ n.xNome }}</td>
                     <td>{{ n.dhEmi_fmt }}</td>
                     <td class="num">{{ n.vProd_br }}</td>
                   </tr>

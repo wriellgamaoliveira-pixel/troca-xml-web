@@ -1,18 +1,453 @@
-{% extends "base.html" %}
-{% block content %}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Documento Auxiliar NFCom - 00000000195</title>
+  <style>
+    :root{
+      --border:#222;
+      --grid:#444;
+      --muted:#666;
+      --bg:#f2f2f2;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      padding:24px;
+      font-family: Arial, Helvetica, sans-serif;
+      color:#111;
+      background:#fff;
+    }
+    .page{
+      width: 900px;
+      max-width: 100%;
+      margin: 0 auto;
+      border: 2px solid var(--border);
+      padding: 14px;
+    }
+    .header{
+      display:grid;
+      grid-template-columns: 210px 1fr;
+      gap: 14px;
+      align-items: center;
+      background:#d9d9d9;
+      border:1px solid var(--border);
+      padding:12px;
+    }
+    .logo{
+      height:110px;
+      border:1px solid #999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#0d2b5b;
+      color:#fff;
+      font-weight:700;
+      letter-spacing:.5px;
+      text-align:center;
+      padding:10px;
+    }
+    .header h1{
+      font-size:14px;
+      margin:0 0 10px 0;
+      text-align:center;
+      font-weight:700;
+      text-transform:uppercase;
+    }
+    .emit{
+      font-size:12px;
+      line-height:1.35;
+    }
+    .emit .name{font-weight:700}
+    .top-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .box{
+      border:1px solid var(--border);
+      padding:10px;
+    }
+    .box h2{
+      margin:0 0 8px 0;
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.2px;
+    }
+    .kv{
+      display:grid;
+      grid-template-columns: 130px 1fr;
+      gap:6px 10px;
+      font-size:12px;
+      line-height:1.35;
+    }
+    .kv .k{
+      color:#000;
+      font-weight:700;
+      text-transform:uppercase;
+      font-size:11px;
+    }
+    .kv .v{color:#111}
+    .qr-area{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:8px;
+      font-size:12px;
+    }
+    .qr{
+      height:150px;
+      border:1px solid #999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      color:#111;
+      background:#fff;
+    }
+    .mini{
+      font-size:11px;
+      color:var(--muted);
+      word-break:break-word;
+    }
+    .ref-row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .ref-card{
+      border:1px solid var(--border);
+      padding:8px;
+      font-size:12px;
+    }
+    .ref-card .title{
+      font-weight:700;
+      text-transform:uppercase;
+      font-size:11px;
+      margin-bottom:4px;
+    }
+    .contrib{
+      border:1px solid var(--border);
+      padding:10px;
+      margin-top:10px;
+      font-size:12px;
+      min-height:70px;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:10px;
+      font-size:12px;
+    }
+    th, td{
+      border:1px solid var(--grid);
+      padding:6px 8px;
+      vertical-align:top;
+    }
+    th{
+      background:#efefef;
+      text-transform:uppercase;
+      font-size:11px;
+      letter-spacing:.2px;
+    }
+    td.num{text-align:right; white-space:nowrap;}
+    td.center{text-align:center; white-space:nowrap;}
+    .bottom-grid{
+      display:grid;
+      grid-template-columns: 260px 260px 1fr;
+      gap: 10px;
+      margin-top: 12px;
+      align-items:start;
+    }
+    .table-like{
+      border:1px solid var(--border);
+    }
+    .table-like .row{
+      display:grid;
+      grid-template-columns: 1fr 110px;
+      border-top:1px solid var(--border);
+    }
+    .table-like .row:first-child{border-top:none;}
+    .table-like .cell{
+      padding:8px;
+      font-size:12px;
+    }
+    .table-like .cell.k{
+      background:#e6e6e6;
+      font-weight:700;
+      text-transform:uppercase;
+      font-size:11px;
+    }
+    .table-like .cell.v{
+      text-align:right;
+      white-space:nowrap;
+    }
+    .section{
+      margin-top:12px;
+      border:1px solid var(--border);
+    }
+    .section .sec-title{
+      background:#e6e6e6;
+      font-weight:700;
+      text-transform:uppercase;
+      font-size:11px;
+      padding:8px;
+      border-bottom:1px solid var(--border);
+      text-align:center;
+      letter-spacing:.2px;
+    }
+    .section .sec-body{
+      min-height:70px;
+      padding:10px;
+      font-size:12px;
+    }
+    .barcode-area{
+      display:grid;
+      grid-template-columns: 240px 1fr 120px;
+      gap: 10px;
+      margin-top:12px;
+      border:1px solid var(--border);
+    }
+    .barcode-area .col{
+      padding:10px;
+      min-height:86px;
+    }
+    .barcode-area .col + .col{border-left:1px solid var(--border);}
+    .barcode-title{
+      font-weight:700;
+      text-transform:uppercase;
+      font-size:11px;
+      margin-bottom:6px;
+      text-align:center;
+    }
+    .barcode{
+      height:44px;
+      border:1px solid #999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      letter-spacing:2px;
+      background:#fff;
+    }
+    .linha-digitavel{
+      margin-top:6px;
+      text-align:center;
+      font-size:12px;
+      letter-spacing:.5px;
+      white-space:nowrap;
+    }
+    .pix{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      font-weight:800;
+      letter-spacing:1px;
+    }
+    @media print{
+      body{padding:0}
+      .page{border:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
 
-<h1>Nota Única</h1>
+    <div class="header">
+      <div class="logo">INFOCELLNET</div>
+      <div>
+        <h1>DOCUMENTO AUXILIAR DA NOTA FISCAL FATURA DE SERVIÇOS DE COMUNICAÇÃO ELETRÔNICA</h1>
+        <div class="emit">
+          <div class="name">M B LOPES NET-ME</div>
+          <div><b>CNPJ:</b> 16.818.273/0001-88</div>
+          <div><b>IE:</b> 153841940</div>
+          <div><b>Endereço:</b> RUA SAO JOAO, 102 -- ATLANTICO 2</div>
+          <div>Salinopolis - PA - 68721000</div>
+        </div>
+      </div>
+    </div>
 
-<div class="card">
-  <form action="/nota/visualizar" method="post" enctype="multipart/form-data">
-    <p><b>Envie 1 XML:</b></p>
+    <div class="top-grid">
 
-    <!-- IMPORTANTE: name="xml_nota" -->
-    <input type="file" name="xml_nota" accept=".xml" required>
+      <div class="box">
+        <h2>Dados do Cliente</h2>
+        <div class="kv">
+          <div class="k">Cliente:</div><div class="v">TESTE NFCOM</div>
+          <div class="k">CPF:</div><div class="v">086.495.481-64</div>
+          <div class="k">Endereço:</div><div class="v">R SAO JOAO, S/N -- ATLANTICO<br/>Salinopolis / PA - 68721000</div>
+        </div>
 
-    <br><br>
-    <button class="btn" type="submit">Visualizar</button>
-  </form>
-</div>
+        <div style="height:10px"></div>
 
-{% endblock %}
+        <h2>Informações</h2>
+        <div class="kv">
+          <div class="k">Cod. Assinante:</div><div class="v">5815</div>
+          <div class="k">Contrato:</div><div class="v">5923</div>
+          <div class="k">Telefone:</div><div class="v">6392169413</div>
+          <div class="k">Período:</div><div class="v">02/12/2025 a 01/01/2026</div>
+        </div>
+
+        <div class="ref-row">
+          <div class="ref-card">
+            <div class="title">Referência (Ano/Mês)</div>
+            <div>01/2026</div>
+          </div>
+          <div class="ref-card">
+            <div class="title">Vencimento</div>
+            <div>01/01/2026</div>
+          </div>
+        </div>
+
+        <div class="ref-row">
+          <div class="ref-card" style="grid-column:1 / span 2;">
+            <div class="title">Total a Pagar</div>
+            <div><b>R$ 30,00</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="qr-area">
+          <div class="qr">QR CODE (visual no PDF)</div>
+          <div class="kv">
+            <div class="k">Nota Fiscal Fatura Nº</div><div class="v">00000000195</div>
+            <div class="k">Série</div><div class="v">1</div>
+            <div class="k">Data de Emissão</div><div class="v">17/12/2025 às 16:04:29</div>
+            <div class="k">Chave de Acesso</div>
+            <div class="v">1525 1216 8182 7300 0188 6200 1000 0001 9510 6897 8623</div>
+            <div class="k">Protocolo de Autorização</div>
+            <div class="v">3152500022443107<br/>17/12/2025 às 16:04:30</div>
+          </div>
+
+          <div class="mini">
+            https://dfe-portal.svrs.rs.gov.br/Nfcom/QrCode?chNFCom=15251216818273000188620010000001951068978623&tpAmb=1
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="contrib">
+      <b>ÁREA DO CONTRIBUINTE:</b><br/>
+      APÓS VENCIMENTO COBRAR MULTA DE R$ 0,60 E JUROS DE R$ 0,01 AO DIA,<br/>
+      DESCONTO DE 10,00 REAIS ATÉ A DATA DE VENCIMENTO
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:90px;">Cod.</th>
+          <th>Itens</th>
+          <th style="width:70px;">UN</th>
+          <th style="width:90px;">Qtd</th>
+          <th style="width:90px;">V. Unit.</th>
+          <th style="width:90px;">Total</th>
+          <th style="width:95px;">PIS/COFINS</th>
+          <th style="width:85px;">BC. ICMS</th>
+          <th style="width:70px;">Aliq</th>
+          <th style="width:85px;">V. ICMS</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>0100401</td>
+          <td>50 MB</td>
+          <td class="center">MB</td>
+          <td class="num">1.0000</td>
+          <td class="num">R$ 15,00</td>
+          <td class="num">R$ 15,00</td>
+          <td class="num">R$ 0,55</td>
+          <td class="num">R$ 15,00</td>
+          <td class="num">19,00%</td>
+          <td class="num">R$ 2,85</td>
+        </tr>
+        <tr>
+          <td>0600601</td>
+          <td>WIFI+</td>
+          <td class="center">MB</td>
+          <td class="num">1.0000</td>
+          <td class="num">R$ 15,00</td>
+          <td class="num">R$ 15,00</td>
+          <td class="num">R$ 0,00</td>
+          <td class="num">R$ 0,00</td>
+          <td class="num">0,00%</td>
+          <td class="num">R$ 0,00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="bottom-grid">
+      <div class="table-like">
+        <div class="row">
+          <div class="cell k">Valor NFF</div><div class="cell v">R$ 30,00</div>
+        </div>
+        <div class="row">
+          <div class="cell k">Total Base de Cálculo</div><div class="cell v">R$ 15,00</div>
+        </div>
+        <div class="row">
+          <div class="cell k">Valor ICMS</div><div class="cell v">R$ 2,85</div>
+        </div>
+        <div class="row">
+          <div class="cell k">Valor Isento</div><div class="cell v">R$ 0,00</div>
+        </div>
+        <div class="row">
+          <div class="cell k">Valor Outros</div><div class="cell v">R$ 0,00</div>
+        </div>
+      </div>
+
+      <div class="table-like">
+        <div class="row">
+          <div class="cell k" style="grid-column:1 / span 2; text-align:center;">Informações dos Tributos</div>
+        </div>
+        <div class="row">
+          <div class="cell k">PIS</div><div class="cell v">R$ 0,10</div>
+        </div>
+        <div class="row">
+          <div class="cell k">COFINS</div><div class="cell v">R$ 0,45</div>
+        </div>
+        <div class="row">
+          <div class="cell k">FUST</div><div class="cell v">R$ 0,12</div>
+        </div>
+        <div class="row">
+          <div class="cell k">FUNTTEL</div><div class="cell v">R$ 0,06</div>
+        </div>
+      </div>
+
+      <div class="table-like">
+        <div class="row">
+          <div class="cell k" style="grid-column:1 / span 2; text-align:center;">Reservado ao Fisco</div>
+        </div>
+        <div class="row">
+          <div class="cell" style="grid-column:1 / span 2; min-height:170px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sec-title">Informações Complementares</div>
+      <div class="sec-body"></div>
+    </div>
+
+    <div class="barcode-area">
+      <div class="col">
+        <div class="barcode-title">Nº Identificador de Débito Automático</div>
+      </div>
+      <div class="col">
+        <div class="barcode-title">Código de Barras</div>
+        <div class="barcode">||||||||||||||||||||||||||||||||||||||||||||</div>
+        <div class="linha-digitavel">23795.75703 90000.000019 96000.968808 2 13130000003000</div>
+      </div>
+      <div class="col pix">PIX</div>
+    </div>
+
+    <div class="section" style="margin-top:12px;">
+      <div class="sec-title">Área do Contribuinte e Determinações da ANATEL</div>
+      <div class="sec-body"></div>
+    </div>
+
+  </div>
+</body>
+</html>

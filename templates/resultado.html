@@ -164,8 +164,8 @@
         {% for it in d.itens %}
         <tr>
           <td>{{ it.cClass or "" }}</td>
-          <td>{{ it.xProd or "" }}</td>
           <td class="center">{{ it.cfop or "" }}</td>
+          <td>{{ it.xProd or "" }}</td>
           <td class="center">{{ it.un or "" }}</td>
           <td class="num">{{ it.qtd_fmt or it.qtd or "" }}</td>
           <td class="num">{{ it.vUnit_fmt or it.vUnit or "" }}</td>
