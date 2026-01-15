@@ -55,23 +55,31 @@ def _zip_iter_files(zip_bytes: bytes) -> List[Tuple[str, bytes]]:
     return out
 
 
-def _find_parent(root: ET.Element, child: ET.Element) -> ET.Element | None:
-    for p in root.iter():
-        for c in list(p):
-            if c is child:
-                return p
-    return None
-
-
 def _findtext(root: ET.Element, *paths: str, default: str = "") -> str:
     """
-    Tenta vários caminhos .//tag e devolve o primeiro texto encontrado.
+    Tenta vários caminhos e devolve o primeiro texto encontrado.
     """
     for p in paths:
         el = root.find(p)
         if el is not None and (el.text or "").strip():
             return (el.text or "").strip()
     return default
+
+
+def _fmt_data(dh: str) -> str:
+    """
+    Converte ISO para dd/mm/aaaa quando possível.
+    Ex: 2026-01-15T10:20:30-03:00 -> 15/01/2026
+    """
+    if not dh:
+        return ""
+    dh = dh.strip()
+    if len(dh) >= 10 and dh[4] == "-" and dh[7] == "-":
+        yyyy = dh[0:4]
+        mm = dh[5:7]
+        dd = dh[8:10]
+        return f"{dd}/{mm}/{yyyy}"
+    return dh
 
 
 # =========================
@@ -117,200 +125,316 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
         desc = str(ws.cell(row, col_desc).value or "").strip()
         if code:
             lista.append({"code": code, "desc": desc})
-
     return lista
 
 
-def cclass_desc_map(cclass_lista: List[Dict[str, str]]) -> Dict[str, str]:
-    return {i["code"]: i.get("desc", "") for i in cclass_lista}
-
-
 # =========================
-# Regras (texto) cClass;CFOP
+# Regras texto (cClass;CFOP por linha)
 # =========================
-def parse_regras_texto(txt: str) -> Dict[str, str]:
+def parse_regras_texto(txt: str | None) -> Dict[str, str]:
+    """
+    Entrada:
+      0600101;5102
+      110201;5102
+    """
     regras: Dict[str, str] = {}
-    for line in (txt or "").splitlines():
+    if not txt:
+        return regras
+    for line in txt.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         if ";" in line:
-            a, b = [x.strip() for x in line.split(";", 1)]
+            a, b = line.split(";", 1)
+            a = a.strip()
+            b = b.strip()
+            if a and b:
+                regras[a] = b
         elif "," in line:
-            a, b = [x.strip() for x in line.split(",", 1)]
-        elif ":" in line:
-            a, b = [x.strip() for x in line.split(":", 1)]
-        else:
-            continue
-        if a and b:
-            regras[a] = b
+            a, b = line.split(",", 1)
+            a = a.strip()
+            b = b.strip()
+            if a and b:
+                regras[a] = b
     return regras
 
 
 # =========================
-# Aplicar regras no XML (lote)
+# Processamento Lote ZIP -> ZIP (mantido)
 # =========================
-def aplicar_regras_xml_str(
-    xml_str: str,
-    regras: Dict[str, str],
-    remover_desconto: bool = False,
-    remover_outros: bool = False,
-) -> str:
-    novo = xml_str
+def _aplicar_regras_xml_str(xml_str: str, regras: Dict[str, str], remover_desc: bool, remover_outros: bool) -> str:
+    """
+    Aplica CFOP conforme cClass (quando encontra <cClass>XXXX</cClass> no item),
+    e remove algumas tags se marcado.
+    """
+    # CFOP por cClass: tenta inserir/atualizar tag CFOP no mesmo "bloco" do item
+    # (simples e funcional com regex para o seu caso)
+    def repl(match):
+        cclass = match.group(1)
+        cfop = regras.get(cclass)
+        bloco = match.group(0)
+        if not cfop:
+            return bloco
 
-    if remover_desconto:
-        novo = re.sub(r"<vDesc>.*?</vDesc>", "", novo, flags=re.DOTALL)
+        if re.search(r"<CFOP>.*?</CFOP>", bloco, flags=re.DOTALL):
+            bloco = re.sub(r"<CFOP>.*?</CFOP>", f"<CFOP>{cfop}</CFOP>", bloco, flags=re.DOTALL)
+            return bloco
 
+        # se não tem CFOP, insere após cClass
+        bloco = bloco.replace(f"<cClass>{cclass}</cClass>", f"<cClass>{cclass}</cClass><CFOP>{cfop}</CFOP>")
+        return bloco
+
+    xml_str = re.sub(r"<cClass>(\d+)</cClass>.*?(?=</det>|</Item>|</item>|</prod>|</Produto>|</produto>)",
+                     repl, xml_str, flags=re.DOTALL)
+
+    # Remover tags (exemplos)
+    if remover_desc:
+        xml_str = re.sub(r"<vDesc>.*?</vDesc>", "", xml_str, flags=re.DOTALL)
     if remover_outros:
-        novo = re.sub(r"<vOutro>.*?</vOutro>", "", novo, flags=re.DOTALL)
+        xml_str = re.sub(r"<vOutro>.*?</vOutro>", "", xml_str, flags=re.DOTALL)
 
-    for cclass, cfop in regras.items():
-        padrao = rf"(<cClass>{re.escape(cclass)}</cClass>)(?!\s*<CFOP>)"
-        novo = re.sub(padrao, rf"\1<CFOP>{cfop}</CFOP>", novo)
-
-    return novo
+    return xml_str
 
 
-def processar_lote_zip(
-    zip_bytes: bytes,
-    regras: Dict[str, str],
-    remover_desconto: bool = False,
-    remover_outros: bool = False,
-) -> bytes:
-    in_files = _zip_iter_files(zip_bytes)
-    mem = io.BytesIO()
-
-    with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        for name, data in in_files:
-            low = name.lower()
-            if low.endswith(".xml"):
-                try:
-                    s = data.decode("utf-8", errors="ignore")
-                    s2 = aplicar_regras_xml_str(s, regras, remover_desconto, remover_outros)
-                    zout.writestr(name, s2.encode("utf-8"))
-                except Exception:
-                    zout.writestr(name, data)
-            else:
+def processar_lote_zip(zip_bytes: bytes, regras: Dict[str, str], remover_desc: bool, remover_outros: bool) -> bytes:
+    mem_out = io.BytesIO()
+    with zipfile.ZipFile(mem_out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for name, data in _zip_iter_files(zip_bytes):
+            if not name.lower().endswith(".xml"):
                 zout.writestr(name, data)
-
-    mem.seek(0)
-    return mem.read()
+                continue
+            try:
+                s = data.decode("utf-8", errors="ignore")
+                s2 = _aplicar_regras_xml_str(s, regras, remover_desc, remover_outros)
+                zout.writestr(name, s2.encode("utf-8"))
+            except Exception:
+                zout.writestr(name, data)
+    return mem_out.getvalue()
 
 
 # =========================
-# RESUMO - Itens (cClass, xProd, vProd)
+# Nota Única (mantido) - parse_nfcom (para resultado.html)
 # =========================
-@dataclass
-class ItemNF:
-    cclass: str
-    xprod: str
-    vprod: float
-
-
-def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemNF]:
+def parse_nfcom(xml_bytes: bytes) -> Dict:
     root = ET.fromstring(xml_bytes)
     root = _strip_namespaces(root)
 
-    itens: List[ItemNF] = []
+    ide = root.find(".//ide")
+    emit = root.find(".//emit")
+    dest = root.find(".//dest")
+    total = root.find(".//total")
 
-    for c_el in root.findall(".//cClass"):
-        cclass = (c_el.text or "").strip()
-        if not cclass:
+    nNF = _findtext(ide, ".//nNF", default="")
+    serie = _findtext(ide, ".//serie", default="")
+    dhEmi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
+    emit_nome = _findtext(emit, ".//xNome", default="")
+    dest_nome = _findtext(dest, ".//xNome", default="")
+
+    itens = []
+    for det in root.findall(".//det"):
+        cClass = _findtext(det, ".//cClass", default="")
+        xProd = _findtext(det, ".//xProd", default="")
+        vProd = _to_float(_findtext(det, ".//vProd", default="0"))
+        itens.append({
+            "cClass": cClass,
+            "xProd": xProd,
+            "vProd": vProd,
+            "vProd_br": _br_money(vProd),
+        })
+
+    vNF = _to_float(_findtext(total, ".//vNF", default="0"))
+    return {
+        "nNF": nNF,
+        "serie": serie,
+        "dhEmi": dhEmi,
+        "dhEmi_fmt": _fmt_data(dhEmi),
+        "emit_nome": emit_nome,
+        "dest_nome": dest_nome,
+        "vNF": vNF,
+        "vNF_br": _br_money(vNF),
+        "itens": itens,
+    }
+
+
+# =========================
+# CSV (mantido)
+# =========================
+def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
+    # mapping: [(header, tag), ...]
+    bio = io.StringIO()
+    w = csv.writer(bio, delimiter=";")
+    w.writerow([m[0] for m in mapping])
+
+    for name, data in _zip_iter_files(zip_bytes):
+        if not name.lower().endswith(".xml"):
+            continue
+        root = ET.fromstring(data)
+        root = _strip_namespaces(root)
+        row = []
+        for _, campo in mapping:
+            el = root.find(f".//{campo}")
+            row.append(el.text.strip() if el is not None and el.text else "")
+        w.writerow(row)
+
+    return bio.getvalue().encode("utf-8-sig")
+
+
+# =========================
+# RESUMO (NOVO/ATUALIZADO): Itens + notas por item
+# =========================
+@dataclass
+class ItemResumo:
+    cclass: str
+    xprod: str
+    vprod: float
+    nnf: str
+    emitente: str
+    dhemi: str
+
+
+def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
+    """
+    Extrai itens (xProd, cClass, vProd) + dados da nota (nNF, emit xNome, dhEmi).
+    """
+    root = ET.fromstring(xml_bytes)
+    root = _strip_namespaces(root)
+
+    ide = root.find(".//ide")
+    emit = root.find(".//emit")
+
+    nnf = _findtext(ide, ".//nNF", default="")
+    dhemi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
+    emitente = _findtext(emit, ".//xNome", default="")
+
+    itens: List[ItemResumo] = []
+    for det in root.findall(".//det"):
+        cclass = _findtext(det, ".//cClass", default="").strip()
+        xprod = _findtext(det, ".//xProd", default="").strip()
+        vprod = _to_float(_findtext(det, ".//vProd", default="0"))
+
+        # ignora linhas vazias
+        if not cclass and not xprod and vprod == 0:
             continue
 
-        vprod = 0.0
-        xprod = ""
-
-        parent = _find_parent(root, c_el)
-        if parent is not None:
-            xp = parent.find(".//xProd")
-            if xp is not None and (xp.text or "").strip():
-                xprod = (xp.text or "").strip()
-
-            vp = parent.find(".//vProd")
-            if vp is not None and (vp.text or "").strip():
-                vprod = _to_float(vp.text)
-            else:
-                grand = _find_parent(root, parent)
-                if grand is not None:
-                    vp2 = grand.find(".//vProd")
-                    if vp2 is not None and (vp2.text or "").strip():
-                        vprod = _to_float(vp2.text)
-
-        itens.append(ItemNF(cclass=cclass, xprod=xprod, vprod=vprod))
-
+        itens.append(ItemResumo(
+            cclass=cclass,
+            xprod=xprod,
+            vprod=vprod,
+            nnf=nnf,
+            emitente=emitente,
+            dhemi=dhemi
+        ))
     return itens
 
 
-def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None) -> dict:
-    desc_map = desc_map or {}
-
-    arquivos = [(n, b) for (n, b) in _zip_iter_files(zip_bytes) if n.lower().endswith(".xml")]
-    total_arquivos = len(arquivos)
-
-    por_cclass: Dict[str, Dict[str, float]] = {}
-    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
+def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
+    """
+    Retorna um dict pronto pro template:
+      - total_arquivos, total_geral_br
+      - linhas (por cClass)
+      - labels/valores (pro gráfico)
+      - itens_linhas (top 50) com accordion:
+          cada linha tem .notas = lista de notas daquele item
+    """
+    total_arquivos = 0
     total_geral = 0.0
 
-    for _, xmlb in arquivos:
+    # por cClass
+    por_cclass: Dict[str, Dict[str, float]] = {}
+
+    # por item (xProd + cClass)
+    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+    # notas por item:
+    # key_item -> key_nota -> soma vprod daquele item naquela nota
+    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str], float]] = {}
+
+    for name, data in _zip_iter_files(zip_bytes):
+        if not name.lower().endswith(".xml"):
+            continue
+
         try:
-            itens = parse_nfcom_itens(xmlb)
+            itens = parse_nfcom_itens(data)
         except Exception:
             continue
 
+        total_arquivos += 1
+
         for it in itens:
-            cc = it.cclass
             v = float(it.vprod)
             total_geral += v
 
-            por_cclass.setdefault(cc, {"qtd_itens": 0.0, "v_total": 0.0})
-            por_cclass[cc]["qtd_itens"] += 1
-            por_cclass[cc]["v_total"] += v
+            # cClass
+            por_cclass.setdefault(it.cclass, {"qtd_itens": 0, "v_total": 0.0})
+            por_cclass[it.cclass]["qtd_itens"] += 1
+            por_cclass[it.cclass]["v_total"] += v
 
-            item_nome = (it.xprod or "(sem descrição)").strip()
-            key = (item_nome, cc)
-            por_item.setdefault(key, {"qtd_itens": 0.0, "v_total": 0.0})
-            por_item[key]["qtd_itens"] += 1
-            por_item[key]["v_total"] += v
+            # item agregado
+            key_item = (it.xprod or "(sem descrição)", it.cclass or "")
+            por_item.setdefault(key_item, {"qtd_itens": 0, "v_total": 0.0})
+            por_item[key_item]["qtd_itens"] += 1
+            por_item[key_item]["v_total"] += v
 
+            # notas por item
+            key_nota = (it.nnf or "", it.emitente or "", it.dhemi or "")
+            por_item_notas.setdefault(key_item, {})
+            por_item_notas[key_item][key_nota] = por_item_notas[key_item].get(key_nota, 0.0) + v
+
+    # monta linhas por cClass (ordenadas por valor)
     linhas = []
-    for cc, agg in por_cclass.items():
+    for cclass, agg in por_cclass.items():
         v_total = float(agg["v_total"])
         qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
-        linhas.append(
-            {
-                "cClass": cc,
-                "descricao": desc_map.get(cc, ""),
-                "qtd_itens": qtd,
-                "v_total": v_total,
-                "v_total_br": _br_money(v_total),
-                "pct": pct,
-                "pct_br": f"{pct:.2f}".replace(".", ","),
-            }
-        )
+        linhas.append({
+            "cClass": cclass,
+            "qtd_itens": qtd,
+            "v_total": v_total,
+            "v_total_br": _br_money(v_total),
+            "pct": pct,
+            "pct_br": f"{pct:.2f}".replace(".", ","),
+        })
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
+    # dados do gráfico (top 12)
+    top = linhas[:12]
+    labels = [x["cClass"] for x in top]
+    valores = [x["v_total"] for x in top]
+
+    # monta itens_linhas (top 50) com notas (accordion)
     itens_linhas = []
-    for (xprod, cc), agg in por_item.items():
+    for (xprod, cclass), agg in por_item.items():
         v_total = float(agg["v_total"])
         qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
-        itens_linhas.append(
-            {
-                "item": xprod,
-                "cClass": cc,
-                "qtd_itens": qtd,
-                "v_total": v_total,
-                "v_total_br": _br_money(v_total),
-                "pct_br": f"{pct:.2f}".replace(".", ","),
-            }
-        )
-    itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
-    top = linhas[:12]
-    labels = [f'{r["cClass"]}' for r in top]
-    valores = [round(float(r["v_total"]), 2) for r in top]
+        notas_map = por_item_notas.get((xprod, cclass), {})
+        notas_list = []
+        for (nnf, emit, dhemi), vnota in notas_map.items():
+            notas_list.append({
+                "nNF": nnf,
+                "xNome": emit,
+                "dhEmi": dhemi,
+                "dhEmi_fmt": _fmt_data(dhemi),
+                "vProd": vnota,
+                "vProd_br": _br_money(float(vnota)),
+            })
+        # opcional: ordenar notas por valor do item na nota (desc)
+        notas_list.sort(key=lambda x: x["vProd"], reverse=True)
+
+        itens_linhas.append({
+            "item": xprod,
+            "cClass": cclass,
+            "qtd_itens": qtd,
+            "v_total": v_total,
+            "v_total_br": _br_money(v_total),
+            "pct": pct,
+            "pct_br": f"{pct:.2f}".replace(".", ","),
+            "notas": notas_list,
+        })
+
+    itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
+    itens_linhas = itens_linhas[:50]
 
     return {
         "total_arquivos": total_arquivos,
@@ -321,194 +445,3 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
         "valores": valores,
         "itens_linhas": itens_linhas,
     }
-
-
-# =========================
-# CSV (ZIP -> CSV)
-# =========================
-def gerar_csv_de_zip(zip_bytes: bytes, mapping: List[Tuple[str, str]]) -> bytes:
-    arquivos = [(n, b) for (n, b) in _zip_iter_files(zip_bytes) if n.lower().endswith(".xml")]
-
-    bio = io.StringIO()
-    w = csv.writer(bio, delimiter=";")
-    w.writerow([m[0] for m in mapping])
-
-    for _, xmlb in arquivos:
-        try:
-            root = ET.fromstring(xmlb)
-            root = _strip_namespaces(root)
-        except Exception:
-            w.writerow(["" for _ in mapping])
-            continue
-
-        row = []
-        for _, campo in mapping:
-            el = root.find(f".//{campo}")
-            row.append((el.text or "").strip() if el is not None else "")
-        w.writerow(row)
-
-    return bio.getvalue().encode("utf-8-sig")
-
-
-# =========================
-# NOTA (gera o dict "d" usado no templates/resultado.html)
-# =========================
-def gerar_dados_nota_xml(xml_bytes: bytes) -> dict:
-    """
-    Monta o dicionário 'd' que o seu template resultado.html espera.
-    Se alguma tag não existir, devolve vazio/— sem quebrar a página.
-    """
-    root = ET.fromstring(xml_bytes)
-    root = _strip_namespaces(root)
-
-    # -------- Emitente
-    emit_nome = _findtext(root, ".//emit//xNome", default="")
-    emit_fantasia = _findtext(root, ".//emit//xFant", default="")
-    emit_cnpj = _findtext(root, ".//emit//CNPJ", ".//emit//CPF", default="")
-    emit_ie = _findtext(root, ".//emit//IE", default="")
-    emit_lgr = _findtext(root, ".//emit//enderEmit//xLgr", default="")
-    emit_nro = _findtext(root, ".//emit//enderEmit//nro", default="")
-    emit_bairro = _findtext(root, ".//emit//enderEmit//xBairro", default="")
-    emit_mun = _findtext(root, ".//emit//enderEmit//xMun", default="")
-    emit_uf = _findtext(root, ".//emit//enderEmit//UF", default="")
-    emit_cep = _findtext(root, ".//emit//enderEmit//CEP", default="")
-
-    emit_endereco_linha1 = " ".join([x for x in [emit_lgr, emit_nro] if x]).strip()
-    emit_endereco_linha2 = " - ".join([x for x in [emit_bairro, emit_mun] if x]).strip()
-    if emit_uf:
-        emit_endereco_linha2 = (emit_endereco_linha2 + f" / {emit_uf}").strip()
-    if emit_cep:
-        emit_endereco_linha2 = (emit_endereco_linha2 + f" - CEP {emit_cep}").strip()
-
-    # -------- Destinatário
-    dest_nome = _findtext(root, ".//dest//xNome", default="")
-    dest_doc = _findtext(root, ".//dest//CNPJ", ".//dest//CPF", default="")
-    dest_lgr = _findtext(root, ".//dest//enderDest//xLgr", default="")
-    dest_nro = _findtext(root, ".//dest//enderDest//nro", default="")
-    dest_bairro = _findtext(root, ".//dest//enderDest//xBairro", default="")
-    dest_mun = _findtext(root, ".//dest//enderDest//xMun", default="")
-    dest_uf = _findtext(root, ".//dest//enderDest//UF", default="")
-    dest_cep = _findtext(root, ".//dest//enderDest//CEP", default="")
-
-    dest_endereco_linha1 = " ".join([x for x in [dest_lgr, dest_nro] if x]).strip()
-    dest_endereco_linha2 = " - ".join([x for x in [dest_bairro, dest_mun] if x]).strip()
-    if dest_uf:
-        dest_endereco_linha2 = (dest_endereco_linha2 + f" / {dest_uf}").strip()
-    if dest_cep:
-        dest_endereco_linha2 = (dest_endereco_linha2 + f" - CEP {dest_cep}").strip()
-
-    # -------- Dados NF
-    nNF = _findtext(root, ".//ide//nNF", default="")
-    serie = _findtext(root, ".//ide//serie", default="")
-    dhEmi = _findtext(root, ".//ide//dhEmi", ".//ide//dEmi", default="")
-    chNFCom = _findtext(root, ".//chNFCom", ".//infNFCom//@Id", default="")
-
-    # Totais básicos
-    vNF = _to_float(_findtext(root, ".//total//vNF", ".//total//ICMSTot//vNF", default="0"))
-    vBC = _to_float(_findtext(root, ".//total//vBC", ".//total//ICMSTot//vBC", default="0"))
-    vICMS = _to_float(_findtext(root, ".//total//vICMS", ".//total//ICMSTot//vICMS", default="0"))
-    vIsento = _to_float(_findtext(root, ".//total//vIsento", default="0"))
-    vOutro = _to_float(_findtext(root, ".//total//vOutro", default="0"))
-
-    # Tributos (se existirem)
-    vPIS = _to_float(_findtext(root, ".//total//vPIS", default="0"))
-    vCOFINS = _to_float(_findtext(root, ".//total//vCOFINS", default="0"))
-    vFUST = _to_float(_findtext(root, ".//total//vFUST", default="0"))
-    vFUNTTEL = _to_float(_findtext(root, ".//total//vFUNTTEL", default="0"))
-
-    # -------- Itens
-    itens = []
-    for det in root.findall(".//det"):
-        cClass = _findtext(det, ".//cClass", default="")
-        xProd = _findtext(det, ".//xProd", default="")
-        cfop = _findtext(det, ".//CFOP", ".//cfop", default="")
-        un = _findtext(det, ".//uCom", ".//uUn", default="")
-        qtd = _to_float(_findtext(det, ".//qCom", ".//qUn", ".//qtd", default="0"))
-        vUnit = _to_float(_findtext(det, ".//vUnCom", ".//vUn", default="0"))
-        vTotal = _to_float(_findtext(det, ".//vProd", ".//vItem", default="0"))
-
-        # PIS/COFINS (bem genérico)
-        pis = _to_float(_findtext(det, ".//PIS//vPIS", default="0"))
-        cof = _to_float(_findtext(det, ".//COFINS//vCOFINS", default="0"))
-        pis_cof = pis + cof
-
-        bc_icms = _to_float(_findtext(det, ".//ICMS//vBC", default="0"))
-        aliq_icms = _to_float(_findtext(det, ".//ICMS//pICMS", default="0"))
-        v_icms = _to_float(_findtext(det, ".//ICMS//vICMS", default="0"))
-
-        itens.append(
-            {
-                "cClass": cClass,
-                "xProd": xProd,
-                "un": un,
-                "qtd": qtd,
-                "qtd_fmt": _br_num(qtd, 2) if qtd else "",
-                "vUnit": vUnit,
-                "vUnit_fmt": _br_money(vUnit) if vUnit else "",
-                "vTotal": vTotal,
-                "vTotal_fmt": _br_money(vTotal) if vTotal else "",
-                "pis_cofins": pis_cof,
-                "pis_cofins_fmt": _br_money(pis_cof) if pis_cof else "",
-                "bc_icms": bc_icms,
-                "bc_icms_fmt": _br_money(bc_icms) if bc_icms else "",
-                "aliq_icms": aliq_icms,
-                "aliq_icms_fmt": _br_num(aliq_icms, 2) if aliq_icms else "",
-                "v_icms": v_icms,
-                "v_icms_fmt": _br_money(v_icms) if v_icms else "",
-            }
-        )
-
-    d = {
-        # Cabeçalho / emit
-        "emit_fantasia": emit_fantasia,
-        "emit_nome": emit_nome,
-        "emit_cnpj": emit_cnpj,
-        "emit_ie": emit_ie,
-        "emit_endereco_linha1": emit_endereco_linha1,
-        "emit_endereco_linha2": emit_endereco_linha2,
-        # Dest
-        "dest_nome": dest_nome,
-        "dest_doc": dest_doc,
-        "dest_endereco_linha1": dest_endereco_linha1,
-        "dest_endereco_linha2": dest_endereco_linha2,
-        # NF
-        "nNF": nNF,
-        "serie": serie,
-        "dhEmi": dhEmi,
-        "dhEmi_fmt": dhEmi,
-        "chNFCom": chNFCom,
-        "chNFCom_fmt": chNFCom,
-        # Totais
-        "total_fmt": _br_money(vNF) if vNF else "",
-        "total_pagar_fmt": _br_money(vNF) if vNF else "",
-        "bc_total_fmt": _br_money(vBC) if vBC else "",
-        "icms_total_fmt": _br_money(vICMS) if vICMS else "",
-        "isento_fmt": _br_money(vIsento) if vIsento else "",
-        "outros_fmt": _br_money(vOutro) if vOutro else "",
-        "pis_total_fmt": _br_money(vPIS) if vPIS else "",
-        "cofins_total_fmt": _br_money(vCOFINS) if vCOFINS else "",
-        "fust_total_fmt": _br_money(vFUST) if vFUST else "",
-        "funttel_total_fmt": _br_money(vFUNTTEL) if vFUNTTEL else "",
-        # Itens
-        "itens": itens,
-        # Campos que o template usa, mas podem ficar vazios sem quebrar:
-        "qrcode_url": "",
-        "prot_num": "",
-        "prot_data": "",
-        "prot_data_fmt": "",
-        "cod_assinante": "",
-        "contrato": "",
-        "telefone": "",
-        "periodo": "",
-        "referencia": "",
-        "vencimento": "",
-        "area_contribuinte": "",
-        "reservado_fisco": "",
-        "info_complementar": "",
-        "debito_auto_id": "",
-        "codigo_barras_vis": "",
-        "linha_digitavel": "",
-        "anatel_texto": "",
-    }
-    return d
-
