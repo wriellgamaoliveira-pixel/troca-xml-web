@@ -99,7 +99,12 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
     if caminho is None:
         return []
 
-    import openpyxl
+    try:
+        import openpyxl  # type: ignore
+    except Exception:
+        # Em ambientes (ex: Render) onde openpyxl não está instalado,
+        # apenas não carrega a tabela — e o app segue vivo.
+        return []
 
     wb = openpyxl.load_workbook(caminho, data_only=True)
     ws = wb.active
@@ -126,6 +131,36 @@ def carregar_cclass_lista(xlsx_path: str = "data/Tabela-cClass.xlsx") -> List[Di
         if code:
             lista.append({"code": code, "desc": desc})
     return lista
+
+
+# =========================
+# cClass_desc_map (compat)
+# =========================
+#
+# O deploy no Render está importando `cClass_desc_map` de `core.py`.
+# Em algumas versões anteriores esse nome existia; em outras, só existia
+# a função de carregar a lista no Excel.
+#
+# Para não travar o app no import (e não exigir openpyxl/logo no boot),
+# disponibilizamos o dict e um carregamento "lazy" (sob demanda).
+
+cClass_desc_map: Dict[str, str] = {}
+
+
+def get_cclass_desc_map(xlsx_path: str = "data/Tabela-cClass.xlsx") -> Dict[str, str]:
+    """Retorna o mapa {cClass: descrição} carregado do Excel (quando disponível)."""
+    global cClass_desc_map
+    if cClass_desc_map:
+        return cClass_desc_map
+
+    try:
+        lista = carregar_cclass_lista(xlsx_path)
+        cClass_desc_map = {row["code"].strip(): row["desc"].strip() for row in lista if row.get("code")}
+    except Exception:
+        # Em ambientes sem openpyxl/arquivo, mantém vazio para não quebrar.
+        cClass_desc_map = {}
+
+    return cClass_desc_map
 
 
 # =========================
