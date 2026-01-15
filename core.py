@@ -288,7 +288,8 @@ class ItemResumo:
     xprod: str
     vprod: float
     nnf: str
-    emitente: str
+    cnf: str
+    dest_nome: str
     dhemi: str
 
 
@@ -300,11 +301,12 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
     root = _strip_namespaces(root)
 
     ide = root.find(".//ide")
-    emit = root.find(".//emit")
+    dest = root.find(".//dest")
 
     nnf = _findtext(ide, ".//nNF", default="")
+    cnf = _findtext(ide, ".//cNF", default="")
     dhemi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
-    emitente = _findtext(emit, ".//xNome", default="")
+    dest_nome = _findtext(dest, ".//xNome", default="")
 
     itens: List[ItemResumo] = []
     for det in root.findall(".//det"):
@@ -321,13 +323,14 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
             xprod=xprod,
             vprod=vprod,
             nnf=nnf,
-            emitente=emitente,
+            cnf=cnf,
+            dest_nome=dest_nome,
             dhemi=dhemi
         ))
     return itens
 
 
-def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
+def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None) -> Dict:
     """
     Retorna um dict pronto pro template:
       - total_arquivos, total_geral_br
@@ -347,7 +350,8 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
 
     # notas por item:
     # key_item -> key_nota -> soma vprod daquele item naquela nota
-    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str], float]] = {}
+    # key_nota = (nNF, cNF, dest/xNome, dhEmi)
+    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
 
     for name, data in _zip_iter_files(zip_bytes):
         if not name.lower().endswith(".xml"):
@@ -376,7 +380,7 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
             por_item[key_item]["v_total"] += v
 
             # notas por item
-            key_nota = (it.nnf or "", it.emitente or "", it.dhemi or "")
+            key_nota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "")
             por_item_notas.setdefault(key_item, {})
             por_item_notas[key_item][key_nota] = por_item_notas[key_item].get(key_nota, 0.0) + v
 
@@ -410,10 +414,11 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
 
         notas_map = por_item_notas.get((xprod, cclass), {})
         notas_list = []
-        for (nnf, emit, dhemi), vnota in notas_map.items():
+        for (nnf, cnf, dest_nome, dhemi), vnota in notas_map.items():
             notas_list.append({
                 "nNF": nnf,
-                "xNome": emit,
+                "cNF": cnf,
+                "xNome": dest_nome,
                 "dhEmi": dhemi,
                 "dhEmi_fmt": _fmt_data(dhemi),
                 "vProd": vnota,
@@ -434,7 +439,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
         })
 
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
-    itens_linhas = itens_linhas[:50]
 
     return {
         "total_arquivos": total_arquivos,
@@ -444,4 +448,135 @@ def gerar_resumo_de_zip(zip_bytes: bytes) -> Dict:
         "labels": labels,
         "valores": valores,
         "itens_linhas": itens_linhas,
+    }
+
+
+# =========================
+# Nota Única (VISUALIZAÇÃO) - compatível com resultado.html
+# =========================
+def gerar_dados_nota_xml(xml_bytes: bytes) -> Dict:
+    """Extrai campos para o template resultado.html.
+
+    A NFCom varia bastante por provedor/leiaute, então aqui a regra é:
+    - procurar as tags mais comuns (com vários caminhos)
+    - não quebrar se alguma parte não existir
+    """
+
+    root = ET.fromstring(xml_bytes)
+    root = _strip_namespaces(root)
+
+    ide = root.find(".//ide")
+    emit = root.find(".//emit")
+    dest = root.find(".//dest")
+    total = root.find(".//total")
+
+    def join_endereco(ender: ET.Element | None) -> Tuple[str, str]:
+        if ender is None:
+            return "", ""
+        lgr = _findtext(ender, ".//xLgr", default="")
+        nro = _findtext(ender, ".//nro", default="")
+        bairro = _findtext(ender, ".//xBairro", default="")
+        mun = _findtext(ender, ".//xMun", default="")
+        uf = _findtext(ender, ".//UF", default="")
+        cep = _findtext(ender, ".//CEP", default="")
+        linha1 = " ".join([x for x in [lgr, ("nº " + nro) if nro else ""] if x]).strip()
+        linha2 = " - ".join([x for x in [bairro, mun, uf] if x]).strip()
+        if cep:
+            linha2 = (linha2 + (" " if linha2 else "") + "CEP " + cep).strip()
+        return linha1, linha2
+
+    # Cabeçalho
+    nNF = _findtext(ide, ".//nNF", default="")
+    serie = _findtext(ide, ".//serie", default="")
+    cNF = _findtext(ide, ".//cNF", default="")
+    dhEmi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
+
+    emit_nome = _findtext(emit, ".//xNome", default="")
+    emit_fantasia = _findtext(emit, ".//xFant", default="")
+    emit_cnpj = _findtext(emit, ".//CNPJ", ".//CPF", default="")
+    emit_ie = _findtext(emit, ".//IE", default="")
+    emit_ender = emit.find(".//enderEmit") if emit is not None else None
+    emit_l1, emit_l2 = join_endereco(emit_ender)
+
+    dest_nome = _findtext(dest, ".//xNome", default="")
+    dest_doc = _findtext(dest, ".//CNPJ", ".//CPF", default="")
+    dest_ender = dest.find(".//enderDest") if dest is not None else None
+    dest_l1, dest_l2 = join_endereco(dest_ender)
+
+    # Totais (tenta achar em vários lugares)
+    vNF = _to_float(_findtext(total, ".//vNF", default="0"))
+    bc_total = _to_float(_findtext(total, ".//vBC", ".//ICMS//vBC", default="0"))
+    icms_total = _to_float(_findtext(total, ".//vICMS", ".//ICMS//vICMS", default="0"))
+    pis_total = _to_float(_findtext(total, ".//vPIS", ".//PIS//vPIS", default="0"))
+    cofins_total = _to_float(_findtext(total, ".//vCOFINS", ".//COFINS//vCOFINS", default="0"))
+    fust_total = _to_float(_findtext(total, ".//vFUST", default="0"))
+    funttel_total = _to_float(_findtext(total, ".//vFUNTTEL", default="0"))
+
+    # Itens
+    itens: List[Dict] = []
+    for det in root.findall(".//det"):
+        cClass = _findtext(det, ".//cClass", default="")
+        xProd = _findtext(det, ".//xProd", default="")
+        cfop = _findtext(det, ".//CFOP", ".//cfop", ".//cCFOP", default="")
+        un = _findtext(det, ".//uCom", ".//uTrib", ".//uUnid", default="")
+        qtd = _to_float(_findtext(det, ".//qCom", ".//qTrib", ".//qUnid", default="0"))
+        vUnit = _to_float(_findtext(det, ".//vUnCom", ".//vUnTrib", ".//vUnid", default="0"))
+        vTotal = _to_float(_findtext(det, ".//vProd", default="0"))
+
+        v_pis = _to_float(_findtext(det, ".//PIS//vPIS", ".//vPIS", default="0"))
+        v_cofins = _to_float(_findtext(det, ".//COFINS//vCOFINS", ".//vCOFINS", default="0"))
+        pis_cofins = v_pis + v_cofins
+
+        bc_icms = _to_float(_findtext(det, ".//ICMS//vBC", ".//vBC", default="0"))
+        aliq_icms = _to_float(_findtext(det, ".//ICMS//pICMS", ".//pICMS", default="0"))
+        v_icms = _to_float(_findtext(det, ".//ICMS//vICMS", ".//vICMS", default="0"))
+
+        itens.append({
+            "cClass": cClass,
+            "cfop": cfop,
+            "xProd": xProd,
+            "un": un,
+            "qtd": qtd,
+            "qtd_fmt": _br_num(qtd, 2) if qtd else "",
+            "vUnit": vUnit,
+            "vUnit_fmt": _br_money(vUnit) if vUnit else "",
+            "vTotal": vTotal,
+            "vTotal_fmt": _br_money(vTotal) if vTotal else "",
+            "pis_cofins": pis_cofins,
+            "pis_cofins_fmt": _br_money(pis_cofins) if pis_cofins else "",
+            "bc_icms": bc_icms,
+            "bc_icms_fmt": _br_money(bc_icms) if bc_icms else "",
+            "aliq_icms": aliq_icms,
+            "aliq_icms_fmt": _br_num(aliq_icms, 2) if aliq_icms else "",
+            "v_icms": v_icms,
+            "v_icms_fmt": _br_money(v_icms) if v_icms else "",
+        })
+
+    return {
+        "nNF": nNF,
+        "serie": serie,
+        "dhEmi": dhEmi,
+        "dhEmi_fmt": _fmt_data(dhEmi),
+        "emit_nome": emit_nome,
+        "emit_fantasia": emit_fantasia,
+        "emit_cnpj": emit_cnpj,
+        "emit_ie": emit_ie,
+        "emit_endereco_linha1": emit_l1,
+        "emit_endereco_linha2": emit_l2,
+        "dest_nome": dest_nome,
+        "dest_doc": dest_doc,
+        "dest_endereco_linha1": dest_l1,
+        "dest_endereco_linha2": dest_l2,
+        # você pediu contrato = cNF
+        "contrato": cNF,
+        "total": vNF,
+        "total_fmt": _br_money(vNF),
+        "total_pagar_fmt": _br_money(vNF),
+        "bc_total_fmt": _br_money(bc_total) if bc_total else "",
+        "icms_total_fmt": _br_money(icms_total) if icms_total else "",
+        "pis_total_fmt": _br_money(pis_total) if pis_total else "",
+        "cofins_total_fmt": _br_money(cofins_total) if cofins_total else "",
+        "fust_total_fmt": _br_money(fust_total) if fust_total else "",
+        "funttel_total_fmt": _br_money(funttel_total) if funttel_total else "",
+        "itens": itens,
     }
