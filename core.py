@@ -420,17 +420,22 @@ class ItemResumo:
     cclass: str
     xprod: str
     vprod: float
-    cfop: str
     nnf: str
     cnf: str
     dest_nome: str
     dest_cnpj: str
     dhemi: str
+    cfop: str
 
 
 def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
     """
-    Extrai itens (xProd, cClass, vProd) + dados da nota (nNF, emit xNome, dhEmi).
+    Extrai itens (xProd, cClass, vProd) + dados da nota:
+      - nNF (numero)
+      - cNF (contrato)
+      - dhEmi/dEmi (data)
+      - 'emitente' conforme seu padrão em <dest>: xNome e CNPJ/CPF
+      - CFOP do item (se existir no XML)
     """
     root = ET.fromstring(xml_bytes)
     root = _strip_namespaces(root)
@@ -441,13 +446,31 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
     nnf = _findtext(ide, ".//nNF", default="")
     cnf = _findtext(ide, ".//cNF", default="")
     dhemi = _findtext(ide, ".//dhEmi", ".//dEmi", default="")
+
     dest_nome = _findtext(dest, ".//xNome", default="")
+    dest_cnpj = _findtext(dest, ".//CNPJ", default="") or _findtext(dest, ".//CPF", default="")
+
+    # Itens podem variar por layout: det / Det / Item / item
+    dets = root.findall(".//det")
+    if not dets:
+        dets = root.findall(".//Det")
+    if not dets:
+        dets = root.findall(".//Item")
+    if not dets:
+        dets = root.findall(".//item")
 
     itens: List[ItemResumo] = []
-    for det in root.findall(".//det"):
+    for det in dets:
         cclass = _findtext(det, ".//cClass", default="").strip()
         xprod = _findtext(det, ".//xProd", default="").strip()
         vprod = _to_float(_findtext(det, ".//vProd", default="0"))
+
+        # CFOP pode estar em vários lugares; tenta alguns caminhos comuns
+        cfop = (
+            _findtext(det, ".//CFOP", default="").strip()
+            or _findtext(det, ".//cfop", default="").strip()
+            or _findtext(det, ".//cCFOP", default="").strip()
+        )
 
         # ignora linhas vazias
         if not cclass and not xprod and vprod == 0:
@@ -457,12 +480,12 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
             cclass=cclass,
             xprod=xprod,
             vprod=vprod,
-            cfop=cfop,
             nnf=nnf,
             cnf=cnf,
             dest_nome=dest_nome,
             dest_cnpj=dest_cnpj,
-            dhemi=dhemi
+            dhemi=dhemi,
+            cfop=cfop,
         ))
     return itens
 
@@ -489,10 +512,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     # key_item -> key_nota -> soma vprod daquele item naquela nota
     # key_nota = (nNF, cNF, dest/xNome, dhEmi)
     por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
-    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str], Dict[str, object]]] = {}
-
-    emitente_nome = ""
-    emitente_cnpj = ""
 
     for name, data in _zip_iter_files(zip_bytes):
         if not name.lower().endswith(".xml"):
@@ -582,8 +601,6 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
     return {
-        "emitente_nome": emitente_nome,
-        "emitente_cnpj": emitente_cnpj,
         "total_arquivos": total_arquivos,
         "total_geral": total_geral,
         "total_geral_br": _br_money(total_geral),
@@ -726,50 +743,76 @@ def gerar_dados_nota_xml(xml_bytes: bytes) -> Dict:
 
 
 
+
+
 def gerar_resumo_de_zip_path(
     zip_path: str,
     desc_map: Dict[str, str] | None = None,
     on_progress=None,
 ) -> Dict:
     """
-    Processa um .zip salvo em disco (evita carregar tudo na RAM) e permite progresso.
-    on_progress(processados, total) é chamado a cada XML.
+    Lê o .zip diretamente do disco (não carrega tudo em RAM).
+    Também captura 'emitente' (primeira nota válida) e cria detalhamento por cClass -> notas com CFOP.
+    Inclui diagnóstico: total_xml, total_ok, total_falhas e primeiro_erro.
     """
-    total_arquivos = 0
-    total_geral = 0.0
-
-    por_cclass: Dict[str, Dict[str, float]] = {}
-    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
-    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
-    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str], Dict[str, object]]] = {}
+    total_xml = 0
+    total_ok = 0
+    total_falhas = 0
+    primeiro_erro = ""
 
     emitente_nome = ""
     emitente_cnpj = ""
+
+    total_geral = 0.0
+
+    por_cclass: Dict[str, Dict[str, float]] = {}
+    # cClass -> (nNF,cNF,xNome,dhEmi,cfop) -> valor
+    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str, str], float]] = {}
+
+    por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
+    por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
 
     with zipfile.ZipFile(zip_path, "r") as z:
         nomes = [n for n in z.namelist() if n.lower().endswith(".xml") and not n.endswith("/")]
         total = len(nomes)
 
         for idx, name in enumerate(nomes, start=1):
+            total_xml += 1
             try:
                 data = z.read(name)
-            except Exception:
+            except Exception as e:
+                total_falhas += 1
+                if not primeiro_erro:
+                    primeiro_erro = f"Falha ao ler {name}: {e}"
                 if on_progress:
                     on_progress(idx, total)
                 continue
 
             try:
                 itens = parse_nfcom_itens(data)
-            except Exception:
+            except Exception as e:
+                total_falhas += 1
+                if not primeiro_erro:
+                    primeiro_erro = f"Falha ao parsear {name}: {e}"
                 if on_progress:
                     on_progress(idx, total)
                 continue
 
-            total_arquivos += 1
+            if not itens:
+                # conta como falha leve (XML sem itens)
+                total_falhas += 1
+                if not primeiro_erro:
+                    primeiro_erro = f"Sem itens detectados em {name}"
+                if on_progress:
+                    on_progress(idx, total)
+                continue
 
-            if not emitente_nome and itens:
-                emitente_nome = itens[0].dest_nome
-                emitente_cnpj = itens[0].dest_cnpj
+            total_ok += 1
+
+            # captura emitente da primeira nota válida
+            if not emitente_nome:
+                emitente_nome = itens[0].dest_nome or ""
+                emitente_cnpj = itens[0].dest_cnpj or ""
 
             for it in itens:
                 v = float(it.vprod)
@@ -779,6 +822,10 @@ def gerar_resumo_de_zip_path(
                 por_cclass[it.cclass]["qtd_itens"] += 1
                 por_cclass[it.cclass]["v_total"] += v
 
+                key_cnota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "", it.cfop or "")
+                por_cclass_notas.setdefault(it.cclass, {})
+                por_cclass_notas[it.cclass][key_cnota] = por_cclass_notas[it.cclass].get(key_cnota, 0.0) + v
+
                 key_item = (it.xprod or "(sem descrição)", it.cclass or "")
                 por_item.setdefault(key_item, {"qtd_itens": 0, "v_total": 0.0})
                 por_item[key_item]["qtd_itens"] += 1
@@ -786,38 +833,32 @@ def gerar_resumo_de_zip_path(
 
                 key_nota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "")
                 por_item_notas.setdefault(key_item, {})
-                por_cclass_notas.setdefault(it.cclass, {})
-                por_cclass_notas[it.cclass].setdefault(key_nota, {"v_total": 0.0, "cfops": set()})
-                por_cclass_notas[it.cclass][key_nota]["v_total"] = float(por_cclass_notas[it.cclass][key_nota]["v_total"]) + v
-                if it.cfop:
-                    por_cclass_notas[it.cclass][key_nota]["cfops"].add(it.cfop)
                 por_item_notas[key_item][key_nota] = por_item_notas[key_item].get(key_nota, 0.0) + v
 
             if on_progress:
                 on_progress(idx, total)
 
+    # Linhas por cClass + notas detalhadas
     linhas = []
     for cclass, agg in por_cclass.items():
         v_total = float(agg["v_total"])
         qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
+
         notas_map = por_cclass_notas.get(cclass, {})
         notas_list = []
-        for (nnf, cnf, dest_nome, dhemi), info in notas_map.items():
-            vnota = float(info.get("v_total", 0.0) or 0.0)
-            cfops = info.get("cfops", set()) or set()
-            cfop_txt = ", ".join(sorted([str(x) for x in cfops if x]))
+        for (nnf, cnf, dest_nome, dhemi, cfop), vnota in notas_map.items():
             notas_list.append({
                 "nNF": nnf,
                 "cNF": cnf,
                 "xNome": dest_nome,
                 "dhEmi": dhemi,
                 "dhEmi_fmt": _fmt_data(dhemi),
-                "vTotal": vnota,
-                "vTotal_br": _br_money(vnota),
-                "cfop": cfop_txt,
+                "CFOP": cfop,
+                "vProd": vnota,
+                "vProd_br": _br_money(float(vnota)),
             })
-        notas_list.sort(key=lambda x: x["vTotal"], reverse=True)
+        notas_list.sort(key=lambda x: x["vProd"], reverse=True)
 
         linhas.append({
             "cClass": cclass,
@@ -835,6 +876,7 @@ def gerar_resumo_de_zip_path(
     labels = [x["cClass"] for x in top]
     valores = [x["v_total"] for x in top]
 
+    # Itens (todos) mantendo comportamento anterior
     itens_linhas = []
     for (xprod, cclass), agg in por_item.items():
         v_total = float(agg["v_total"])
@@ -865,18 +907,24 @@ def gerar_resumo_de_zip_path(
             "pct_br": f"{pct:.2f}".replace(".", ","),
             "notas": notas_list,
         })
-
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
     return {
         "emitente_nome": emitente_nome,
         "emitente_cnpj": emitente_cnpj,
-        "total_arquivos": total_arquivos,
+        "total_arquivos": total_ok,
         "total_geral": total_geral,
         "total_geral_br": _br_money(total_geral),
         "linhas": linhas,
         "labels": labels,
         "valores": valores,
         "itens_linhas": itens_linhas,
+        "debug": {
+            "total_xml": total_xml,
+            "total_ok": total_ok,
+            "total_falhas": total_falhas,
+            "primeiro_erro": primeiro_erro,
+        }
     }
+
 
