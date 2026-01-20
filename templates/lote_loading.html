@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Lote (processando...)</h1>
+
+<div class="card">
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div class="spinner" aria-label="Carregando"></div>
+    <div>
+      <div><b>Job:</b> {{ job_id }}</div>
+      <div id="status_txt" style="margin-top:6px; opacity:.85;">Iniciando...</div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <div style="height:10px; background:#eee; border-radius:999px; overflow:hidden;">
+      <div id="bar" style="height:10px; width:0%; background:#333;"></div>
+    </div>
+    <div id="pct_txt" style="margin-top:8px; font-size:13px; opacity:.85;">0%</div>
+  </div>
+
+  <div id="err_box" class="erro" style="display:none; margin-top:12px;"></div>
+
+  <div style="margin-top:14px; font-size:13px; opacity:.85;">
+    Não feche esta página. Quando terminar, o download vai iniciar automaticamente.
+  </div>
+</div>
+
+<style>
+.spinner{
+  width:26px;height:26px;border-radius:999px;
+  border:3px solid #ddd;border-top-color:#333;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+
+<script>
+(function(){
+  const jobId = "{{ job_id }}";
+  const statusTxt = document.getElementById("status_txt");
+  const pctTxt = document.getElementById("pct_txt");
+  const bar = document.getElementById("bar");
+  const errBox = document.getElementById("err_box");
+
+  async function tick(){
+    try{
+      const r = await fetch(`/lote/status/${jobId}`, {cache:"no-store"});
+      const j = await r.json();
+
+      if(!j.ok){
+        statusTxt.textContent = "Status indisponível.";
+        return;
+      }
+
+      statusTxt.textContent = `Status: ${j.status} | Processados: ${j.processed}/${j.total}`;
+      pctTxt.textContent = `${j.pct}%`;
+      bar.style.width = `${j.pct}%`;
+
+      if(j.status === "error"){
+        errBox.style.display = "block";
+        errBox.textContent = "Erro: " + (j.error || "desconhecido");
+        return;
+      }
+
+      if(j.done){
+        window.location.href = `/lote/baixar/${jobId}`;
+        return;
+      }
+
+      setTimeout(tick, 700);
+    }catch(e){
+      statusTxt.textContent = "Falha ao consultar status, tentando novamente...";
+      setTimeout(tick, 1200);
+    }
+  }
+
+  tick();
+})();
+</script>
+
+{% endblock %}
