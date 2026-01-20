@@ -854,7 +854,7 @@ def gerar_resumo_de_zip_path(
                 "xNome": dest_nome,
                 "dhEmi": dhemi,
                 "dhEmi_fmt": _fmt_data(dhemi),
-                "CFOP": cfop,
+                "cfop": cfop,
                 "vProd": vnota,
                 "vProd_br": _br_money(float(vnota)),
             })
