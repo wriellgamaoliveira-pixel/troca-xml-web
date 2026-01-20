@@ -94,7 +94,7 @@
                   <td>{{ n.cNF }}</td>
                   <td>{{ n.xNome }}</td>
                   <td>{{ n.dhEmi_fmt }}</td>
-                  <td>{{ n.cfop }}</td>
+                  <td>{{ n.cfop or n.CFOP }}</td>
                   <td>{{ n.v_total_br }}</td>
                 </tr>
                 {% endfor %}
