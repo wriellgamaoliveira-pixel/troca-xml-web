@@ -190,6 +190,106 @@ def parse_regras_texto(txt: str | None) -> Dict[str, str]:
     return regras
 
 
+
+# =========================
+# LOTE (ROBUSTO): aplicar regras via XML (sem regex pesada)
+# =========================
+def _remover_tags(root: ET.Element, tag: str) -> None:
+    """Remove todas as ocorrências de um tag (sem depender de namespaces)."""
+    # Mapeia child->parent
+    parents = {}
+    for parent in root.iter():
+        for child in list(parent):
+            parents[child] = parent
+    for el in list(root.iter(tag)):
+        p = parents.get(el)
+        if p is not None:
+            try:
+                p.remove(el)
+            except Exception:
+                pass
+
+
+def _aplicar_regras_xml_bytes(xml_bytes: bytes, regras: Dict[str, str], remover_desc: bool, remover_outros: bool) -> bytes:
+    """Aplica CFOP por cClass e remove tags, usando ElementTree (evita travamento por regex)."""
+    try:
+        root = ET.fromstring(xml_bytes)
+        root = _strip_namespaces(root)
+    except Exception:
+        return xml_bytes
+
+    # Remove tags solicitadas
+    if remover_desc:
+        _remover_tags(root, "vDesc")
+    if remover_outros:
+        _remover_tags(root, "vOutro")
+
+    # Aplica CFOP por item
+    # Tentamos achar itens em <det> e/ou <Item> (alguns XMLs variam)
+    itens = root.findall(".//det")
+    if not itens:
+        itens = root.findall(".//Item")
+    if not itens:
+        itens = root.findall(".//item")
+
+    for det in itens:
+        # Encontra cClass em qualquer nível dentro do item
+        cclass_el = det.find(".//cClass")
+        if cclass_el is None or not (cclass_el.text or "").strip():
+            continue
+        cclass = (cclass_el.text or "").strip()
+        cfop = regras.get(cclass)
+        if not cfop:
+            continue
+
+        # Define onde colocar CFOP (prioridade: prod/Produto/produto; se não existir, no próprio item)
+        container = det.find(".//prod") or det.find(".//Produto") or det.find(".//produto") or det
+
+        cfop_el = container.find(".//CFOP")
+        if cfop_el is None:
+            # cria CFOP direto no container
+            cfop_el = ET.SubElement(container, "CFOP")
+        cfop_el.text = str(cfop)
+
+    # Serializa de volta
+    try:
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    except Exception:
+        return xml_bytes
+
+
+def processar_lote_zip_path(
+    zip_path: str,
+    out_path: str,
+    regras: Dict[str, str],
+    remover_desc: bool,
+    remover_outros: bool,
+    on_progress=None,
+) -> None:
+    """Processa um ZIP em disco e grava o ZIP de saída em disco (bom para muitos arquivos)."""
+    with zipfile.ZipFile(zip_path, "r") as zin:
+        nomes = [n for n in zin.namelist() if n and not n.endswith("/") ]
+        total = len(nomes)
+
+        with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for idx, name in enumerate(nomes, start=1):
+                try:
+                    data = zin.read(name)
+                except Exception:
+                    if on_progress:
+                        on: int = idx
+                        on_progress(idx, total)
+                    continue
+
+                if name.lower().endswith(".xml"):
+                    data2 = _aplicar_regras_xml_bytes(data, regras, remover_desc, remover_outros)
+                    zout.writestr(name, data2)
+                else:
+                    zout.writestr(name, data)
+
+                if on_progress:
+                    on_progress(idx, total)
+
 # =========================
 # Processamento Lote ZIP -> ZIP (mantido)
 # =========================
@@ -228,6 +328,7 @@ def _aplicar_regras_xml_str(xml_str: str, regras: Dict[str, str], remover_desc: 
 
 
 def processar_lote_zip(zip_bytes: bytes, regras: Dict[str, str], remover_desc: bool, remover_outros: bool) -> bytes:
+    """Mantido por compatibilidade: lê ZIP em memória e devolve ZIP em memória."""
     mem_out = io.BytesIO()
     with zipfile.ZipFile(mem_out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for name, data in _zip_iter_files(zip_bytes):
@@ -235,10 +336,11 @@ def processar_lote_zip(zip_bytes: bytes, regras: Dict[str, str], remover_desc: b
                 zout.writestr(name, data)
                 continue
             try:
-                s = data.decode("utf-8", errors="ignore")
-                s2 = _aplicar_regras_xml_str(s, regras, remover_desc, remover_outros)
-                zout.writestr(name, s2.encode("utf-8"))
+                # Primeiro tenta via XML (mais seguro)
+                data2 = _aplicar_regras_xml_bytes(data, regras, remover_desc, remover_outros)
+                zout.writestr(name, data2)
             except Exception:
+                # Fallback: mantém original
                 zout.writestr(name, data)
     return mem_out.getvalue()
 
