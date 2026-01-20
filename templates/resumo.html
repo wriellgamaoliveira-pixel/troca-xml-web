@@ -18,6 +18,19 @@
 {% endif %}
 <p><b>Total arquivos:</b> {{ resumo.total_arquivos }}</p>
   <p><b>Total geral:</b> {{ resumo.total_geral_br }}</p>
+
+  {% if resumo.debug %}
+  <div style="margin-top:10px; font-size:13px; opacity:.85;">
+    <b>Diagnóstico:</b>
+    XMLs no ZIP: {{ resumo.debug.total_xml }} |
+    OK: {{ resumo.debug.total_ok }} |
+    Falhas: {{ resumo.debug.total_falhas }}
+    {% if resumo.debug.primeiro_erro %}
+    <div style="margin-top:6px; white-space:pre-wrap;"><b>Primeiro erro:</b> {{ resumo.debug.primeiro_erro }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
 </div>
 
 <div class="card">
