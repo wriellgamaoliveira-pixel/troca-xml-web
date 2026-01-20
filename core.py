@@ -420,9 +420,11 @@ class ItemResumo:
     cclass: str
     xprod: str
     vprod: float
+    cfop: str
     nnf: str
     cnf: str
     dest_nome: str
+    dest_cnpj: str
     dhemi: str
 
 
@@ -455,9 +457,11 @@ def parse_nfcom_itens(xml_bytes: bytes) -> List[ItemResumo]:
             cclass=cclass,
             xprod=xprod,
             vprod=vprod,
+            cfop=cfop,
             nnf=nnf,
             cnf=cnf,
             dest_nome=dest_nome,
+            dest_cnpj=dest_cnpj,
             dhemi=dhemi
         ))
     return itens
@@ -485,6 +489,10 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     # key_item -> key_nota -> soma vprod daquele item naquela nota
     # key_nota = (nNF, cNF, dest/xNome, dhEmi)
     por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
+    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str], Dict[str, object]]] = {}
+
+    emitente_nome = ""
+    emitente_cnpj = ""
 
     for name, data in _zip_iter_files(zip_bytes):
         if not name.lower().endswith(".xml"):
@@ -574,6 +582,8 @@ def gerar_resumo_de_zip(zip_bytes: bytes, desc_map: Dict[str, str] | None = None
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
     return {
+        "emitente_nome": emitente_nome,
+        "emitente_cnpj": emitente_cnpj,
         "total_arquivos": total_arquivos,
         "total_geral": total_geral,
         "total_geral_br": _br_money(total_geral),
@@ -731,6 +741,10 @@ def gerar_resumo_de_zip_path(
     por_cclass: Dict[str, Dict[str, float]] = {}
     por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
     por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
+    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str], Dict[str, object]]] = {}
+
+    emitente_nome = ""
+    emitente_cnpj = ""
 
     with zipfile.ZipFile(zip_path, "r") as z:
         nomes = [n for n in z.namelist() if n.lower().endswith(".xml") and not n.endswith("/")]
@@ -753,6 +767,10 @@ def gerar_resumo_de_zip_path(
 
             total_arquivos += 1
 
+            if not emitente_nome and itens:
+                emitente_nome = itens[0].dest_nome
+                emitente_cnpj = itens[0].dest_cnpj
+
             for it in itens:
                 v = float(it.vprod)
                 total_geral += v
@@ -768,6 +786,11 @@ def gerar_resumo_de_zip_path(
 
                 key_nota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "")
                 por_item_notas.setdefault(key_item, {})
+                por_cclass_notas.setdefault(it.cclass, {})
+                por_cclass_notas[it.cclass].setdefault(key_nota, {"v_total": 0.0, "cfops": set()})
+                por_cclass_notas[it.cclass][key_nota]["v_total"] = float(por_cclass_notas[it.cclass][key_nota]["v_total"]) + v
+                if it.cfop:
+                    por_cclass_notas[it.cclass][key_nota]["cfops"].add(it.cfop)
                 por_item_notas[key_item][key_nota] = por_item_notas[key_item].get(key_nota, 0.0) + v
 
             if on_progress:
@@ -778,6 +801,24 @@ def gerar_resumo_de_zip_path(
         v_total = float(agg["v_total"])
         qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
+        notas_map = por_cclass_notas.get(cclass, {})
+        notas_list = []
+        for (nnf, cnf, dest_nome, dhemi), info in notas_map.items():
+            vnota = float(info.get("v_total", 0.0) or 0.0)
+            cfops = info.get("cfops", set()) or set()
+            cfop_txt = ", ".join(sorted([str(x) for x in cfops if x]))
+            notas_list.append({
+                "nNF": nnf,
+                "cNF": cnf,
+                "xNome": dest_nome,
+                "dhEmi": dhemi,
+                "dhEmi_fmt": _fmt_data(dhemi),
+                "vTotal": vnota,
+                "vTotal_br": _br_money(vnota),
+                "cfop": cfop_txt,
+            })
+        notas_list.sort(key=lambda x: x["vTotal"], reverse=True)
+
         linhas.append({
             "cClass": cclass,
             "desc": (desc_map or {}).get(cclass, ""),
@@ -786,6 +827,7 @@ def gerar_resumo_de_zip_path(
             "v_total_br": _br_money(v_total),
             "pct": pct,
             "pct_br": f"{pct:.2f}".replace(".", ","),
+            "notas": notas_list,
         })
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
@@ -827,6 +869,8 @@ def gerar_resumo_de_zip_path(
     itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
     return {
+        "emitente_nome": emitente_nome,
+        "emitente_cnpj": emitente_cnpj,
         "total_arquivos": total_arquivos,
         "total_geral": total_geral,
         "total_geral_br": _br_money(total_geral),
