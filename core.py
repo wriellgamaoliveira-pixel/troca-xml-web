@@ -752,7 +752,7 @@ def gerar_resumo_de_zip_path(
 ) -> Dict:
     """
     Lê o .zip diretamente do disco (não carrega tudo em RAM).
-    Também captura 'emitente' (primeira nota válida) e cria detalhamento por cClass -> notas com CFOP.
+    Também captura 'emitente' (primeira nota válida) e cria detalhamento por cClass -> CFOP -> Notas com 3 níveis.
     Inclui diagnóstico: total_xml, total_ok, total_falhas e primeiro_erro.
     """
     total_xml = 0
@@ -765,9 +765,9 @@ def gerar_resumo_de_zip_path(
 
     total_geral = 0.0
 
+    # Estrutura para 3 níveis: cClass -> CFOP -> Notas
     por_cclass: Dict[str, Dict[str, float]] = {}
-    # cClass -> (nNF,cNF,xNome,dhEmi,cfop) -> valor
-    por_cclass_notas: Dict[str, Dict[Tuple[str, str, str, str, str], float]] = {}
+    por_cclass_cfop_notas: Dict[str, Dict[str, List[Dict]]] = {}
 
     por_item: Dict[Tuple[str, str], Dict[str, float]] = {}
     por_item_notas: Dict[Tuple[str, str], Dict[Tuple[str, str, str, str], float]] = {}
@@ -818,14 +818,31 @@ def gerar_resumo_de_zip_path(
                 v = float(it.vprod)
                 total_geral += v
 
+                # Nível 1: cClass
                 por_cclass.setdefault(it.cclass, {"qtd_itens": 0, "v_total": 0.0})
                 por_cclass[it.cclass]["qtd_itens"] += 1
                 por_cclass[it.cclass]["v_total"] += v
 
-                key_cnota = (it.nnf or "", it.cnf or "", it.dest_nome or "", it.dhemi or "", it.cfop or "")
-                por_cclass_notas.setdefault(it.cclass, {})
-                por_cclass_notas[it.cclass][key_cnota] = por_cclass_notas[it.cclass].get(key_cnota, 0.0) + v
+                # Nível 2: CFOP dentro do cClass
+                cfop = it.cfop or "(sem CFOP)"
+                if it.cclass not in por_cclass_cfop_notas:
+                    por_cclass_cfop_notas[it.cclass] = {}
+                if cfop not in por_cclass_cfop_notas[it.cclass]:
+                    por_cclass_cfop_notas[it.cclass][cfop] = []
+                
+                # Nível 3: Nota dentro do CFOP
+                por_cclass_cfop_notas[it.cclass][cfop].append({
+                    "nNF": it.nnf or "",
+                    "cNF": it.cnf or "",
+                    "xNome": it.dest_nome or "",
+                    "dhEmi": it.dhemi or "",
+                    "dhEmi_fmt": _fmt_data(it.dhemi or ""),
+                    "cfop": cfop,
+                    "vProd": v,
+                    "vProd_br": _br_money(v)
+                })
 
+                # Para a tabela de itens (mantido)
                 key_item = (it.xprod or "(sem descrição)", it.cclass or "")
                 por_item.setdefault(key_item, {"qtd_itens": 0, "v_total": 0.0})
                 por_item[key_item]["qtd_itens"] += 1
@@ -838,28 +855,30 @@ def gerar_resumo_de_zip_path(
             if on_progress:
                 on_progress(idx, total)
 
-    # Linhas por cClass + notas detalhadas
+    # Montar estrutura final com 3 níveis
     linhas = []
     for cclass, agg in por_cclass.items():
         v_total = float(agg["v_total"])
         qtd = int(agg["qtd_itens"])
         pct = (v_total / total_geral * 100.0) if total_geral > 0 else 0.0
-
-        notas_map = por_cclass_notas.get(cclass, {})
-        notas_list = []
-        for (nnf, cnf, dest_nome, dhemi, cfop), vnota in notas_map.items():
-            notas_list.append({
-                "nNF": nnf,
-                "cNF": cnf,
-                "xNome": dest_nome,
-                "dhEmi": dhemi,
-                "dhEmi_fmt": _fmt_data(dhemi),
+        
+        # Obter CFOPs para este cClass
+        cfops_data = []
+        cfops_dict = por_cclass_cfop_notas.get(cclass, {})
+        
+        for cfop, notas in cfops_dict.items():
+            # Calcular total por CFOP
+            cfop_total = sum(n["vProd"] for n in notas)
+            cfops_data.append({
                 "cfop": cfop,
-                "vProd": vnota,
-                "vProd_br": _br_money(float(vnota)),
+                "v_total": cfop_total,
+                "v_total_br": _br_money(cfop_total),
+                "notas": sorted(notas, key=lambda x: x["vProd"], reverse=True)
             })
-        notas_list.sort(key=lambda x: x["vProd"], reverse=True)
-
+        
+        # Ordenar CFOPs por valor
+        cfops_data.sort(key=lambda x: x["v_total"], reverse=True)
+        
         linhas.append({
             "cClass": cclass,
             "desc": (desc_map or {}).get(cclass, ""),
@@ -868,8 +887,9 @@ def gerar_resumo_de_zip_path(
             "v_total_br": _br_money(v_total),
             "pct": pct,
             "pct_br": f"{pct:.2f}".replace(".", ","),
-            "notas": notas_list,
+            "cfops": cfops_data  # Novo: lista de CFOPs com suas notas
         })
+    
     linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
     top = linhas[:12]
@@ -926,5 +946,3 @@ def gerar_resumo_de_zip_path(
             "primeiro_erro": primeiro_erro,
         }
     }
-
-
