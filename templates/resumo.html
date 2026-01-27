@@ -42,12 +42,44 @@
 
 <div class="card">
   <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-    <h3 style="margin:0;">Tabela por cClass</h3>
+    <h3 style="margin:0;">Tabela por cClass (3 níveis)</h3>
     <div style="display:flex; gap:10px;">
-      <button type="button" class="btn" onclick="expandirTodosCclass()">Expandir Todos</button>
-      <button type="button" class="btn" onclick="recolherTodosCclass()">Recolher Todos</button>
+      <button type="button" class="btn" onclick="expandirTodosNiveis()">Expandir Todos</button>
+      <button type="button" class="btn" onclick="recolherTodosNiveis()">Recolher Todos</button>
     </div>
   </div>
+
+  <style>
+    .acc-toggle {
+      cursor: pointer;
+      user-select: none;
+      font-weight: bold;
+      display: inline-block;
+      width: 20px;
+      text-align: center;
+    }
+    .nivel-cfop {
+      background-color: #f5f5f5;
+    }
+    .nivel-nota {
+      background-color: #f0f0f0;
+    }
+    .acc-box {
+      padding: 10px;
+      border-left: 3px solid #ddd;
+    }
+    .tbl {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .tbl th, .tbl td {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+    .tbl th {
+      background: #efefef;
+    }
+  </style>
 
   <table class="tbl">
     <thead>
@@ -61,48 +93,70 @@
       </tr>
     </thead>
     <tbody>
-      {% for r in resumo.linhas %}
-      {% set row_id = "cc_" ~ loop.index0 %}
+      {% for linha in resumo.linhas %}
+      {% set cclass_id = "cc_" ~ loop.index0 %}
+      <!-- Nível 1: cClass -->
       <tr>
-        <td class="acc-toggle" onclick="toggleCclass('{{ row_id }}')">▶</td>
-        <td>{{ r.cClass }}</td>
-        <td>{{ r.desc }}</td>
-        <td>{{ r.qtd_itens }}</td>
-        <td>{{ r.v_total_br }}</td>
-        <td>{{ r.pct_br }}%</td>
+        <td class="acc-toggle" onclick="toggleNivel('{{ cclass_id }}')">▶</td>
+        <td>{{ linha.cClass }}</td>
+        <td>{{ linha.desc }}</td>
+        <td>{{ linha.qtd_itens }}</td>
+        <td>{{ linha.v_total_br }}</td>
+        <td>{{ linha.pct_br }}%</td>
       </tr>
-      <tr id="{{ row_id }}" class="acc-row" style="display:none;">
+      
+      <!-- Nível 2: CFOPs (dentro do cClass) -->
+      <tr id="{{ cclass_id }}" class="nivel-cfop" style="display:none;">
         <td colspan="6">
           <div class="acc-box">
-            <div style="font-weight:bold; margin-bottom:8px;">Notas desta cClass</div>
-            {% if r.notas and r.notas|length > 0 %}
-            <table class="tbl" style="margin:0;">
-              <thead>
-                <tr>
-                  <th style="width:90px;">nNF</th>
-                  <th style="width:110px;">cNF</th>
-                  <th>Emitente</th>
-                  <th style="width:110px;">Emissão</th>
-                  <th style="width:120px;">CFOP</th>
-                  <th style="width:140px;">Valor (cClass)</th>
-                </tr>
-              </thead>
+            <table class="tbl" style="margin:0; background:#f9f9f9;">
               <tbody>
-                {% for n in r.notas %}
+                {% for cfop in linha.cfops %}
+                {% set cfop_id = cclass_id ~ "_cfop_" ~ loop.index0 %}
                 <tr>
-                  <td>{{ n.nNF }}</td>
-                  <td>{{ n.cNF }}</td>
-                  <td>{{ n.xNome }}</td>
-                  <td>{{ n.dhEmi_fmt }}</td>
-                  <td>{{ n.cfop or n.CFOP }}</td>
-                  <td>{{ n.v_total_br }}</td>
+                  <td style="width:28px; padding-left:20px;">
+                    <span class="acc-toggle" onclick="toggleNivel('{{ cfop_id }}')">▶</span>
+                  </td>
+                  <td style="font-weight:bold;">CFOP {{ cfop.cfop }}</td>
+                  <td colspan="2"></td>
+                  <td style="font-weight:bold;">{{ cfop.v_total_br }}</td>
+                  <td></td>
+                </tr>
+                
+                <!-- Nível 3: Notas (dentro do CFOP) -->
+                <tr id="{{ cfop_id }}" class="nivel-nota" style="display:none;">
+                  <td colspan="6">
+                    <div style="padding-left:40px; background:#f0f0f0;">
+                      <table class="tbl" style="margin:0; font-size:12px;">
+                        <thead>
+                          <tr>
+                            <th style="width:90px;">nNF</th>
+                            <th style="width:110px;">cNF</th>
+                            <th>Emitente</th>
+                            <th style="width:110px;">Emissão</th>
+                            <th style="width:120px;">CFOP</th>
+                            <th style="width:140px;">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for nota in cfop.notas %}
+                          <tr>
+                            <td>{{ nota.nNF }}</td>
+                            <td>{{ nota.cNF }}</td>
+                            <td>{{ nota.xNome }}</td>
+                            <td>{{ nota.dhEmi_fmt }}</td>
+                            <td>{{ nota.cfop }}</td>
+                            <td>{{ nota.vProd_br }}</td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
                 </tr>
                 {% endfor %}
               </tbody>
             </table>
-            {% else %}
-              <div style="opacity:.8;">Nenhuma nota relacionada encontrada.</div>
-            {% endif %}
           </div>
         </td>
       </tr>
@@ -121,20 +175,8 @@
   </div>
 
   <style>
-    .acc-toggle {
-      cursor: pointer;
-      user-select: none;
-      font-weight: bold;
-      display: inline-block;
-      width: 20px;
-      text-align: center;
-    }
     tr.acc-detalhe {
       background: #f6f6f6;
-    }
-    .acc-box {
-      padding: 10px;
-      border-left: 3px solid #ddd;
     }
     table.table-interna {
       width: 100%;
@@ -215,36 +257,57 @@
 </div>
 
 <script>
-
-  // === Accordion cClass ===
-  function toggleCclass(id){
-    const row = document.getElementById(id);
-    if(!row) return;
-    const toggleCell = row.previousElementSibling?.children?.[0];
-    const isOpen = row.style.display !== "none";
-    row.style.display = isOpen ? "none" : "table-row";
-    if(toggleCell) toggleCell.textContent = isOpen ? "▶" : "▼";
+  // Função para alternar qualquer nível
+  function toggleNivel(id) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    
+    const isOpen = element.style.display !== "none";
+    element.style.display = isOpen ? "none" : "table-row";
+    
+    // Atualizar ícone do botão que acionou
+    const toggleBtn = element.previousElementSibling?.querySelector('.acc-toggle') || 
+                      document.querySelector(`[onclick*="${id}"]`);
+    if (toggleBtn) {
+      toggleBtn.textContent = isOpen ? "▶" : "▼";
+    }
   }
 
-  function expandirTodosCclass(){
-    const rows = document.querySelectorAll('tr[id^="cc_"].acc-row');
-    rows.forEach(r => {
-      if(r.style.display === "none"){
-        r.style.display = "table-row";
-        const t = r.previousElementSibling?.children?.[0];
-        if(t) t.textContent = "▼";
-      }
+  // Expandir todos os níveis
+  function expandirTodosNiveis() {
+    // Nível 2 (CFOPs)
+    const nivel2 = document.querySelectorAll('.nivel-cfop');
+    nivel2.forEach(el => {
+      el.style.display = 'table-row';
+      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
+      if (toggleBtn) toggleBtn.textContent = "▼";
+    });
+    
+    // Nível 3 (Notas)
+    const nivel3 = document.querySelectorAll('.nivel-nota');
+    nivel3.forEach(el => {
+      el.style.display = 'table-row';
+      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
+      if (toggleBtn) toggleBtn.textContent = "▼";
     });
   }
 
-  function recolherTodosCclass(){
-    const rows = document.querySelectorAll('tr[id^="cc_"].acc-row');
-    rows.forEach(r => {
-      if(r.style.display !== "none"){
-        r.style.display = "none";
-        const t = r.previousElementSibling?.children?.[0];
-        if(t) t.textContent = "▶";
-      }
+  // Recolher todos os níveis
+  function recolherTodosNiveis() {
+    // Nível 3 (Notas)
+    const nivel3 = document.querySelectorAll('.nivel-nota');
+    nivel3.forEach(el => {
+      el.style.display = 'none';
+      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
+      if (toggleBtn) toggleBtn.textContent = "▶";
+    });
+    
+    // Nível 2 (CFOPs)
+    const nivel2 = document.querySelectorAll('.nivel-cfop');
+    nivel2.forEach(el => {
+      el.style.display = 'none';
+      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
+      if (toggleBtn) toggleBtn.textContent = "▶";
     });
   }
 
@@ -264,7 +327,7 @@
     }
   });
 
-  // Accordion
+  // Accordion para itens
   function toggleAcc(id) {
     const row = document.getElementById(id);
     const ico = document.getElementById(id + "_ico");
