@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resumo - Troca XML Web</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="nav-container">
+        <a href="{{ url_for('index') }}" class="nav-logo">📋 Troca XML Web</a>
+        <div class="nav-links">
+            <a href="{{ url_for('index') }}" class="nav-link"><i data-lucide="home"></i> Início</a>
+            <a href="{{ url_for('sessao') }}" class="nav-link"><i data-lucide="database"></i> Sessão</a>
+            <a href="{{ url_for('nota') }}" class="nav-link"><i data-lucide="file-text"></i> Nota Única</a>
+            <a href="{{ url_for('lote') }}" class="nav-link"><i data-lucide="folder-archive"></i> Lote</a>
+            <a href="{{ url_for('resumo') }}" class="nav-link active"><i data-lucide="bar-chart-3"></i> Resumo</a>
+            <a href="{{ url_for('csv') }}" class="nav-link"><i data-lucide="file-spreadsheet"></i> CSV</a>
+        </div>
+    </div>
+</nav>
+
+<main class="container">
+
+    <div class="mb-6">
+        <a href="{{ url_for('resumo') }}" class="btn btn-outline">
+            <i data-lucide="arrow-left"></i> Voltar
+        </a>
+    </div>
+
+    <div class="card">
+        <h1 class="text-2xl font-bold mb-4">Resumo (por cClass)</h1>
+
+        <div class="resumo-geral">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <h3 class="text-lg font-semibold">Emitente</h3>
+                    <p class="font-medium">{{ data.emitente_nome }}</p>
+                    <p class="text-sm text-muted">{{ data.emitente_cnpj }}</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-sm text-muted">Total de Arquivos</p>
+                        <p class="text-2xl font-bold">{{ data.total_arquivos }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted">Valor Total</p>
+                        <p class="text-2xl font-bold text-primary">{{ data.total_geral_br }}</p>
+                    </div>
+                </div>
+            </div>
+
+            {% if data.debug %}
+            <div class="diagnostico">
+                <strong>Diagnóstico:</strong>
+                XMLs: {{ data.debug.total_xml }} |
+                OK: {{ data.debug.total_ok }} |
+                Falhas: {{ data.debug.total_falhas }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="text-xl font-bold mb-4">Gráfico (Top 12 cClass)</h2>
+        <div class="chart-container">
+            <canvas id="cclassChart"></canvas>
+        </div>
+    </div>
+
+</main>
+
+<script>
+    lucide.createIcons();
+
+    const ctx = document.getElementById('cclassChart');
+    new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: {{ data.labels | tojson }},
+            datasets: [{
+                data: {{ data.valores | tojson }},
+                backgroundColor: [
+                    '#0088FE','#00C49F','#FFBB28','#FF8042',
+                    '#8884d8','#82ca9d','#ffc658','#ff7c43'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'right' }
+            }
+        }
+    });
+</script>
+
+</body>
+</html>
