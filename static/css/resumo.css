@@ -1,0 +1,326 @@
+/* Estilos específicos para a página de resumo */
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Cards */
+.card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.card h1 {
+    font-size: 1.875rem;
+    font-weight: bold;
+    color: #1f2937;
+}
+
+.card h2 {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #1f2937;
+}
+
+.card h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+/* Resumo Geral */
+.resumo-geral {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.diagnostico {
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 16px;
+}
+
+/* Grid */
+.grid {
+    display: grid;
+}
+
+.grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.md\:grid-cols-2 {
+    @media (min-width: 768px) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.gap-4 {
+    gap: 1rem;
+}
+
+.gap-6 {
+    gap: 1.5rem;
+}
+
+/* Texto */
+.text-primary {
+    color: #000000;
+}
+
+.text-muted {
+    color: #6b7280;
+}
+
+.text-sm {
+    font-size: 0.875rem;
+}
+
+.text-lg {
+    font-size: 1.125rem;
+}
+
+.text-xl {
+    font-size: 1.25rem;
+}
+
+.text-2xl {
+    font-size: 1.5rem;
+}
+
+.font-bold {
+    font-weight: bold;
+}
+
+.font-semibold {
+    font-weight: 600;
+}
+
+.font-medium {
+    font-weight: 500;
+}
+
+.font-mono {
+    font-family: 'Courier New', monospace;
+}
+
+/* Botões */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    border: 1px solid transparent;
+}
+
+.btn-outline {
+    background: white;
+    border-color: #d1d5db;
+    color: #374151;
+}
+
+.btn-outline:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.875rem;
+}
+
+/* Inputs */
+.input-field {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.875rem;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: #000000;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Tabelas */
+.table-container {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table thead {
+    background: #f9fafb;
+}
+
+.data-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.data-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.data-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.text-right {
+    text-align: right;
+}
+
+/* Utilities */
+.mb-4 {
+    margin-bottom: 1rem;
+}
+
+.mb-6 {
+    margin-bottom: 1.5rem;
+}
+
+.mb-2 {
+    margin-bottom: 0.5rem;
+}
+
+.mt-1 {
+    margin-top: 0.25rem;
+}
+
+.flex {
+    display: flex;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.relative {
+    position: relative;
+}
+
+.absolute {
+    position: absolute;
+}
+
+.transform {
+    transform: translateY(-50%);
+}
+
+.-translate-y-1\/2 {
+    transform: translateY(-50%);
+}
+
+.top-1\/2 {
+    top: 50%;
+}
+
+.left-3 {
+    left: 12px;
+}
+
+.pl-10 {
+    padding-left: 40px;
+}
+
+.pl-3 {
+    padding-left: 12px;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.hidden {
+    display: none;
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.bg-gray-50 {
+    background: #f9fafb;
+}
+
+.bg-gray-100 {
+    background: #f3f4f6;
+}
+
+.p-4 {
+    padding: 16px;
+}
+
+.space-y-3 > * + * {
+    margin-top: 12px;
+}
+
+/* Chart */
+.chart-container {
+    position: relative;
+    height: 400px;
+    width: 100%;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .container {
+        padding: 12px;
+    }
+    
+    .card {
+        padding: 16px;
+    }
+    
+    .flex {
+        flex-direction: column;
+    }
+    
+    .gap-4 {
+        gap: 0.5rem;
+    }
+    
+    .data-table {
+        font-size: 0.875rem;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 8px 12px;
+    }
+}
