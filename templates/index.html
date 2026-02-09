@@ -1,13 +1,79 @@
 {% extends "base.html" %}
+
+{% block title %}Início{% endblock %}
+
 {% block content %}
-<h1>Troca XML Web</h1>
+<div class="header">
+    <h1>📋 Troca XML Web</h1>
+    <p class="subtitle">Sistema para processamento de XMLs (NFCom e NFe)</p>
+</div>
+
+<div class="grid">
+    <div class="card feature-card" onclick="window.location.href='{{ url_for('sessao') }}'">
+        <div class="feature-icon">
+            <i data-lucide="database"></i>
+        </div>
+        <h3>Sessão</h3>
+        <p>Gerenciar sessões temporárias com upload múltiplo</p>
+    </div>
+    
+    <div class="card feature-card" onclick="window.location.href='{{ url_for('nota') }}'">
+        <div class="feature-icon">
+            <i data-lucide="file-text"></i>
+        </div>
+        <h3>Nota Única</h3>
+        <p>Visualizar e validar uma nota fiscal individual</p>
+    </div>
+    
+    <div class="card feature-card" onclick="window.location.href='{{ url_for('lote') }}'">
+        <div class="feature-icon">
+            <i data-lucide="folder-archive"></i>
+        </div>
+        <h3>Lote</h3>
+        <p>Processar múltiplos XMLs com regras de transformação</p>
+    </div>
+    
+    <div class="card feature-card" onclick="window.location.href='{{ url_for('resumo') }}'">
+        <div class="feature-icon">
+            <i data-lucide="bar-chart-3"></i>
+        </div>
+        <h3>Resumo</h3>
+        <p>Relatório consolidado com análise agregada</p>
+    </div>
+    
+    <div class="card feature-card" onclick="window.location.href='{{ url_for('csv') }}'">
+        <div class="feature-icon">
+            <i data-lucide="file-spreadsheet"></i>
+        </div>
+        <h3>CSV</h3>
+        <p>Exportar dados para CSV com mapeamento personalizado</p>
+    </div>
+</div>
+
 <div class="card">
-  <p>Escolha uma área no menu:</p>
-  <ul>
-    <li><b>Lote</b>: envia um ZIP e recebe um ZIP com XMLs editados</li>
-    <li><b>Nota Única</b>: envia 1 XML, visualiza, baixa PDF ou XML editado</li>
-    <li><b>CSV</b>: envia ZIP + mapeamento e baixa o CSV</li>
-    <li><b>Resumo</b>: envia ZIP e vê totais por cClass + gráfico pizza</li>
-  </ul>
+    <h2>Como usar</h2>
+    <div class="instructions">
+        <div class="instruction-step">
+            <span class="step-number">1</span>
+            <div class="step-content">
+                <h4>Criar uma Sessão</h4>
+                <p>Vá para "Sessão" e faça upload de seus arquivos XML ou ZIP</p>
+            </div>
+        </div>
+        <div class="instruction-step">
+            <span class="step-number">2</span>
+            <div class="step-content">
+                <h4>Processar Dados</h4>
+                <p>Use "Nota Única" para análise individual ou "Lote" para múltiplos</p>
+            </div>
+        </div>
+        <div class="instruction-step">
+            <span class="step-number">3</span>
+            <div class="step-content">
+                <h4>Analisar Resultados</h4>
+                <p>Visualize resumos consolidados e exporte para CSV</p>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

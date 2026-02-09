@@ -1,18 +1,177 @@
 {% extends "base.html" %}
+
+{% block title %}Nota Única{% endblock %}
+
 {% block content %}
-
-<h1>Nota Única</h1>
-
-<div class="card">
-  <form action="/nota/visualizar" method="post" enctype="multipart/form-data">
-    <p><b>Envie 1 XML:</b></p>
-
-    <!-- IMPORTANTE: name="xml_nota" -->
-    <input type="file" name="xml_nota" accept=".xml" required>
-
-    <br><br>
-    <button class="btn" type="submit">Visualizar</button>
-  </form>
+<div class="header">
+    <h1><i data-lucide="file-text"></i> Nota Única</h1>
+    <p class="subtitle">Visualizar e analisar um arquivo XML individual</p>
 </div>
 
+<div class="card">
+    <h2>Selecionar XML</h2>
+    <div class="upload-area">
+        <i data-lucide="file-text" class="upload-icon"></i>
+        <p>Selecione um arquivo XML para visualização detalhada</p>
+        <input type="file" id="notaFileInput" accept=".xml" style="display: none;">
+        <button class="btn btn-primary" onclick="document.getElementById('notaFileInput').click()">
+            Selecionar XML
+        </button>
+    </div>
+</div>
+
+<div id="notaResult" class="card" style="display: none;">
+    <h2>Dados da Nota Fiscal</h2>
+    
+    <div class="nota-section">
+        <h3>Informações da Nota</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <strong>Número:</strong> <span id="nNF">-</span>
+            </div>
+            <div class="info-item">
+                <strong>Série:</strong> <span id="serie">-</span>
+            </div>
+            <div class="info-item">
+                <strong>Data Emissão:</strong> <span id="dhEmi">-</span>
+            </div>
+            <div class="info-item">
+                <strong>Modelo:</strong> <span id="modelo">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="nota-section">
+        <h3>Emitente</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <strong>Nome:</strong> <span id="emitenteNome">-</span>
+            </div>
+            <div class="info-item">
+                <strong>CNPJ:</strong> <span id="emitenteCNPJ">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="nota-section">
+        <h3>Itens</h3>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descrição</th>
+                        <th>NCM</th>
+                        <th>CFOP</th>
+                        <th>Quantidade</th>
+                        <th>Valor Unit.</th>
+                        <th>Valor Total</th>
+                    </tr>
+                </thead>
+                <tbody id="itensTable">
+                    <!-- Itens serão inseridos via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="nota-section">
+        <h3>Totalizações</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <strong>Valor dos Produtos:</strong> <span id="vProd">R$ 0,00</span>
+            </div>
+            <div class="info-item">
+                <strong>Valor Total da Nota:</strong> <span id="vTotal">R$ 0,00</span>
+            </div>
+            <div class="info-item">
+                <strong>ICMS:</strong> <span id="vICMS">R$ 0,00</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('notaFileInput').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    
+    reader.onload = async function(event) {
+        const xmlContent = event.target.result;
+        
+        // Parse XML localmente (simplificado)
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
+        
+        // Extrai dados básicos
+        const nNF = xmlDoc.getElementsByTagName('nNF')[0]?.textContent || '-';
+        const dhEmi = xmlDoc.getElementsByTagName('dhEmi')[0]?.textContent || '-';
+        
+        const emitente = xmlDoc.getElementsByTagName('emit')[0];
+        const emitenteNome = emitente?.getElementsByTagName('xNome')[0]?.textContent || '-';
+        const emitenteCNPJ = emitente?.getElementsByTagName('CNPJ')[0]?.textContent || '-';
+        
+        // Preenche dados básicos
+        document.getElementById('nNF').textContent = nNF;
+        document.getElementById('dhEmi').textContent = formatDate(dhEmi);
+        document.getElementById('emitenteNome').textContent = emitenteNome;
+        document.getElementById('emitenteCNPJ').textContent = formatCNPJ(emitenteCNPJ);
+        
+        // Processa itens
+        const itens = xmlDoc.getElementsByTagName('det');
+        const itensTable = document.getElementById('itensTable');
+        itensTable.innerHTML = '';
+        
+        let totalProdutos = 0;
+        
+        for (let item of itens) {
+            const prod = item.getElementsByTagName('prod')[0];
+            if (!prod) continue;
+            
+            const cProd = prod.getElementsByTagName('cProd')[0]?.textContent || '-';
+            const xProd = prod.getElementsByTagName('xProd')[0]?.textContent || '-';
+            const NCM = prod.getElementsByTagName('NCM')[0]?.textContent || '-';
+            const CFOP = prod.getElementsByTagName('CFOP')[0]?.textContent || '-';
+            const qCom = parseFloat(prod.getElementsByTagName('qCom')[0]?.textContent || '0');
+            const vUnCom = parseFloat(prod.getElementsByTagName('vUnCom')[0]?.textContent || '0');
+            const vProd = parseFloat(prod.getElementsByTagName('vProd')[0]?.textContent || '0');
+            
+            totalProdutos += vProd;
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${cProd}</td>
+                <td>${xProd}</td>
+                <td>${NCM}</td>
+                <td>${CFOP}</td>
+                <td>${qCom.toLocaleString('pt-BR')}</td>
+                <td>R$ ${vUnCom.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                <td>R$ ${vProd.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+            `;
+            itensTable.appendChild(row);
+        }
+        
+        document.getElementById('vProd').textContent = 
+            `R$ ${totalProdutos.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+        
+        // Mostra resultado
+        document.getElementById('notaResult').style.display = 'block';
+    };
+    
+    reader.readAsText(file);
+});
+
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleString('pt-BR');
+}
+
+function formatCNPJ(cnpj) {
+    if (!cnpj) return '-';
+    return cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+}
+</script>
 {% endblock %}

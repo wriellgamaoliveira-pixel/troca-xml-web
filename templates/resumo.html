@@ -1,360 +1,166 @@
 {% extends "base.html" %}
+
+{% block title %}Resumo{% endblock %}
+
 {% block content %}
-<h1>Resumo (por cClass)</h1>
-
-<div class="card">
-  <form action="/resumo/gerar" method="post" enctype="multipart/form-data">
-    <p><b>Envie um .zip</b> com XMLs:</p>
-    <input type="file" name="zip_xmls" accept=".zip" required><br><br>
-    <button class="btn" type="submit">Gerar Resumo</button>
-  </form>
-</div>
-
-{% if resumo %}
-<div class="card">
-  {% if resumo.emitente_nome %}
-  <p><b>Emitente:</b> {{ resumo.emitente_nome }}</p>
-  <p><b>CNPJ/CPF:</b> {{ resumo.emitente_cnpj }}</p>
-{% endif %}
-<p><b>Total arquivos:</b> {{ resumo.total_arquivos }}</p>
-  <p><b>Total geral:</b> {{ resumo.total_geral_br }}</p>
-
-  {% if resumo.debug %}
-  <div style="margin-top:10px; font-size:13px; opacity:.85;">
-    <b>Diagnóstico:</b>
-    XMLs no ZIP: {{ resumo.debug.total_xml }} |
-    OK: {{ resumo.debug.total_ok }} |
-    Falhas: {{ resumo.debug.total_falhas }}
-    {% if resumo.debug.primeiro_erro %}
-    <div style="margin-top:6px; white-space:pre-wrap;"><b>Primeiro erro:</b> {{ resumo.debug.primeiro_erro }}</div>
-    {% endif %}
-  </div>
-  {% endif %}
-
+<div class="header">
+    <h1><i data-lucide="bar-chart-3"></i> Resumo Consolidado</h1>
+    <p class="subtitle">Análise agregada de múltiplos XMLs</p>
 </div>
 
 <div class="card">
-  <h3>Gráfico (Top 12 cClass)</h3>
-  <div style="max-width:520px; max-height:320px;">
-    <canvas id="pizza" style="width:100%; height:320px;"></canvas>
-  </div>
-</div>
-
-<div class="card">
-  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-    <h3 style="margin:0;">Tabela por cClass (3 níveis)</h3>
-    <div style="display:flex; gap:10px;">
-      <button type="button" class="btn" onclick="expandirTodosNiveis()">Expandir Todos</button>
-      <button type="button" class="btn" onclick="recolherTodosNiveis()">Recolher Todos</button>
+    <h2>Gerar Resumo</h2>
+    <div id="resumoUpload" class="upload-area">
+        <i data-lucide="folder-archive" class="upload-icon"></i>
+        <p>Selecione um arquivo ZIP contendo XMLs para análise</p>
+        <input type="file" id="resumoFileInput" accept=".zip" style="display: none;">
+        <button class="btn btn-primary" onclick="document.getElementById('resumoFileInput').click()">
+            Selecionar ZIP
+        </button>
     </div>
-  </div>
-
-  <style>
-    .acc-toggle {
-      cursor: pointer;
-      user-select: none;
-      font-weight: bold;
-      display: inline-block;
-      width: 20px;
-      text-align: center;
-    }
-    .nivel-cfop {
-      background-color: #f5f5f5;
-    }
-    .nivel-nota {
-      background-color: #f0f0f0;
-    }
-    .acc-box {
-      padding: 10px;
-      border-left: 3px solid #ddd;
-    }
-    .tbl {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .tbl th, .tbl td {
-      border: 1px solid #ddd;
-      padding: 8px;
-    }
-    .tbl th {
-      background: #efefef;
-    }
-  </style>
-
-  <table class="tbl">
-    <thead>
-      <tr>
-        <th style="width:28px;"></th>
-        <th>cClass</th>
-        <th>Descrição</th>
-        <th style="width:90px;">Qtd Itens</th>
-        <th style="width:140px;">Valor Total</th>
-        <th style="width:80px;">%</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for linha in resumo.linhas %}
-      {% set cclass_id = "cc_" ~ loop.index0 %}
-      <!-- Nível 1: cClass -->
-      <tr>
-        <td class="acc-toggle" onclick="toggleNivel('{{ cclass_id }}')">▶</td>
-        <td>{{ linha.cClass }}</td>
-        <td>{{ linha.desc }}</td>
-        <td>{{ linha.qtd_itens }}</td>
-        <td>{{ linha.v_total_br }}</td>
-        <td>{{ linha.pct_br }}%</td>
-      </tr>
-      
-      <!-- Nível 2: CFOPs (dentro do cClass) -->
-      <tr id="{{ cclass_id }}" class="nivel-cfop" style="display:none;">
-        <td colspan="6">
-          <div class="acc-box">
-            <table class="tbl" style="margin:0; background:#f9f9f9;">
-              <tbody>
-                {% for cfop in linha.cfops %}
-                {% set cfop_id = cclass_id ~ "_cfop_" ~ loop.index0 %}
-                <tr>
-                  <td style="width:28px; padding-left:20px;">
-                    <span class="acc-toggle" onclick="toggleNivel('{{ cfop_id }}')">▶</span>
-                  </td>
-                  <td style="font-weight:bold;">CFOP {{ cfop.cfop }}</td>
-                  <td colspan="2"></td>
-                  <td style="font-weight:bold;">{{ cfop.v_total_br }}</td>
-                  <td></td>
-                </tr>
-                
-                <!-- Nível 3: Notas (dentro do CFOP) -->
-                <tr id="{{ cfop_id }}" class="nivel-nota" style="display:none;">
-                  <td colspan="6">
-                    <div style="padding-left:40px; background:#f0f0f0;">
-                      <table class="tbl" style="margin:0; font-size:12px;">
-                        <thead>
-                          <tr>
-                            <th style="width:90px;">nNF</th>
-                            <th style="width:110px;">cNF</th>
-                            <th>Emitente</th>
-                            <th style="width:110px;">Emissão</th>
-                            <th style="width:120px;">CFOP</th>
-                            <th style="width:140px;">Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {% for nota in cfop.notas %}
-                          <tr>
-                            <td>{{ nota.nNF }}</td>
-                            <td>{{ nota.cNF }}</td>
-                            <td>{{ nota.xNome }}</td>
-                            <td>{{ nota.dhEmi_fmt }}</td>
-                            <td>{{ nota.cfop }}</td>
-                            <td>{{ nota.vProd_br }}</td>
-                          </tr>
-                          {% endfor %}
-                        </tbody>
-                      </table>
-                    </div>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 </div>
 
-<div class="card">
-  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-    <h3 style="margin:0;">Tabela de Itens (Todos)</h3>
-    <div style="display:flex; gap:10px;">
-      <button type="button" class="btn" onclick="expandirTodos()">Expandir Todos</button>
-      <button type="button" class="btn" onclick="recolherTodos()">Recolher Todos</button>
+<div id="resumoResult" style="display: none;">
+    <div class="summary-cards">
+        <div class="summary-card">
+            <h3>Arquivos Processados</h3>
+            <p class="summary-value" id="totalArquivos">0</p>
+        </div>
+        <div class="summary-card">
+            <h3>Valor Total</h3>
+            <p class="summary-value" id="valorTotal">R$ 0,00</p>
+        </div>
+        <div class="summary-card">
+            <h3>Impostos Retidos</h3>
+            <p class="summary-value" id="totalImpostos">R$ 0,00</p>
+        </div>
     </div>
-  </div>
-
-  <style>
-    tr.acc-detalhe {
-      background: #f6f6f6;
-    }
-    table.table-interna {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 6px;
-      font-size: 13px;
-    }
-    table.table-interna th, table.table-interna td {
-      border: 1px solid #ddd;
-      padding: 6px;
-    }
-    .num { text-align:right; }
-  </style>
-
-  <table>
-    <thead>
-      <tr>
-        <th style="width:28px;"></th>
-        <th>Item</th>
-        <th style="width:90px;">cClass</th>
-        <th style="width:90px;">Qtd Itens</th>
-        <th style="width:140px;">Valor Total</th>
-        <th style="width:80px;">%</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in resumo.itens_linhas %}
-      {% set row_id = "acc_" ~ loop.index0 %}
-      <tr>
-        <td>
-          <span class="acc-toggle" id="{{ row_id }}_ico" onclick="toggleAcc('{{ row_id }}')">▶</span>
-        </td>
-        <td>{{ it.item }}</td>
-        <td>{{ it.cClass }}</td>
-        <td class="num">{{ it.qtd_itens }}</td>
-        <td class="num">{{ it.v_total_br }}</td>
-        <td class="num">{{ it.pct_br }}%</td>
-      </tr>
-
-      <tr class="acc-detalhe" id="{{ row_id }}" style="display:none;">
-        <td colspan="6">
-          <div class="acc-box">
-            <b>Notas fiscais relacionadas</b>
-            {% if it.notas and it.notas|length > 0 %}
-              <table class="table-interna">
+    
+    <div class="card">
+        <h2>Agrupamento por Classificação Fiscal (cClass)</h2>
+        <div class="table-container">
+            <table class="data-table">
                 <thead>
-                  <tr>
-                    <th style="width:90px;">nNF</th>
-                    <th style="width:120px;">Contrato (cNF)</th>
-                    <th>Emitente (dest/xNome)</th>
-                    <th style="width:110px;">Emissão</th>
-                    <th style="width:140px;">Valor do item</th>
-                  </tr>
+                    <tr>
+                        <th>cClass</th>
+                        <th>Descrição</th>
+                        <th>Quantidade</th>
+                        <th>Valor Total</th>
+                        <th>% do Total</th>
+                    </tr>
                 </thead>
-                <tbody>
-                  {% for n in it.notas %}
-                  <tr>
-                    <td>{{ n.nNF }}</td>
-                    <td>{{ n.cNF }}</td>
-                    <td>{{ n.xNome }}</td>
-                    <td>{{ n.dhEmi_fmt }}</td>
-                    <td class="num">{{ n.vProd_br }}</td>
-                  </tr>
-                  {% endfor %}
+                <tbody id="cClassTable">
+                    <!-- Dados serão inseridos via JS -->
                 </tbody>
-              </table>
-            {% else %}
-              <div style="margin-top:8px; font-size:13px; opacity:0.85;">
-                Nenhuma nota encontrada para este item.
-              </div>
-            {% endif %}
-          </div>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+            </table>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Gráfico - Top 12 cClass</h2>
+        <div id="chartContainer" style="height: 400px;">
+            <!-- Gráfico será renderizado -->
+        </div>
+    </div>
 </div>
 
 <script>
-  // Função para alternar qualquer nível
-  function toggleNivel(id) {
-    const element = document.getElementById(id);
-    if (!element) return;
+document.getElementById('resumoFileInput').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
     
-    const isOpen = element.style.display !== "none";
-    element.style.display = isOpen ? "none" : "table-row";
-    
-    // Atualizar ícone do botão que acionou
-    const toggleBtn = element.previousElementSibling?.querySelector('.acc-toggle') || 
-                      document.querySelector(`[onclick*="${id}"]`);
-    if (toggleBtn) {
-      toggleBtn.textContent = isOpen ? "▶" : "▼";
+    // Cria sessão para o resumo
+    if (!window.sessionManager.sessionId) {
+        await window.sessionManager.createSession();
     }
-  }
-
-  // Expandir todos os níveis
-  function expandirTodosNiveis() {
-    // Nível 2 (CFOPs)
-    const nivel2 = document.querySelectorAll('.nivel-cfop');
-    nivel2.forEach(el => {
-      el.style.display = 'table-row';
-      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
-      if (toggleBtn) toggleBtn.textContent = "▼";
+    
+    // Upload do arquivo
+    await uploadFile(file);
+    
+    // Gera resumo
+    const response = await fetch('/api/resumo/gerar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: window.sessionManager.sessionId
+        })
     });
     
-    // Nível 3 (Notas)
-    const nivel3 = document.querySelectorAll('.nivel-nota');
-    nivel3.forEach(el => {
-      el.style.display = 'table-row';
-      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
-      if (toggleBtn) toggleBtn.textContent = "▼";
-    });
-  }
-
-  // Recolher todos os níveis
-  function recolherTodosNiveis() {
-    // Nível 3 (Notas)
-    const nivel3 = document.querySelectorAll('.nivel-nota');
-    nivel3.forEach(el => {
-      el.style.display = 'none';
-      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
-      if (toggleBtn) toggleBtn.textContent = "▶";
+    const result = await response.json();
+    
+    // Exibe resultados
+    document.getElementById('resumoResult').style.display = 'block';
+    document.getElementById('totalArquivos').textContent = result.total_arquivos;
+    document.getElementById('valorTotal').textContent = result.total_geral_br;
+    document.getElementById('totalImpostos').textContent = result.total_impostos_br;
+    
+    // Preenche tabela
+    const tableBody = document.getElementById('cClassTable');
+    tableBody.innerHTML = '';
+    
+    result.linhas.forEach(linha => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${linha.cClass}</td>
+            <td>${linha.desc || '-'}</td>
+            <td>${linha.qtd_itens}</td>
+            <td>${linha.v_total_br}</td>
+            <td>${linha.pct_br}</td>
+        `;
+        tableBody.appendChild(row);
     });
     
-    // Nível 2 (CFOPs)
-    const nivel2 = document.querySelectorAll('.nivel-cfop');
-    nivel2.forEach(el => {
-      el.style.display = 'none';
-      const toggleBtn = el.previousElementSibling?.querySelector('.acc-toggle');
-      if (toggleBtn) toggleBtn.textContent = "▶";
-    });
-  }
+    // Cria gráfico (simplificado)
+    createChart(result.labels, result.valores);
+});
 
-  // Gráfico
-  const labels = {{ resumo.labels|tojson }};
-  const valores = {{ resumo.valores|tojson }};
-  const ctx = document.getElementById("pizza");
-  new Chart(ctx, {
-    type: "pie",
-    data: {
-      labels: labels,
-      datasets: [{ data: valores }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
+function createChart(labels, valores) {
+    const container = document.getElementById('chartContainer');
+    container.innerHTML = '<canvas id="cClassChart"></canvas>';
+    
+    const ctx = document.getElementById('cClassChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Valor (R$)',
+                data: valores,
+                backgroundColor: '#000000'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+// Upload de arquivo (similar à função da sessão)
+async function uploadFile(file) {
+    const chunkSize = 5 * 1024 * 1024;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('session_id', window.sessionManager.sessionId);
+        formData.append('chunk_index', chunkIndex);
+        formData.append('total_chunks', totalChunks);
+        
+        await fetch('/api/sessao/upload-chunk', {
+            method: 'POST',
+            body: formData
+        });
     }
-  });
-
-  // Accordion para itens
-  function toggleAcc(id) {
-    const row = document.getElementById(id);
-    const ico = document.getElementById(id + "_ico");
-    const aberto = row.style.display !== "none";
-
-    row.style.display = aberto ? "none" : "table-row";
-    ico.textContent = aberto ? "▶" : "▼";
-  }
-
-  function expandirTodos() {
-    const detalhes = document.querySelectorAll("tr.acc-detalhe");
-    detalhes.forEach(tr => {
-      tr.style.display = "table-row";
-      const ico = document.getElementById(tr.id + "_ico");
-      if (ico) ico.textContent = "▼";
-    });
-  }
-
-  function recolherTodos() {
-    const detalhes = document.querySelectorAll("tr.acc-detalhe");
-    detalhes.forEach(tr => {
-      tr.style.display = "none";
-      const ico = document.getElementById(tr.id + "_ico");
-      if (ico) ico.textContent = "▶";
-    });
-  }
+}
 </script>
-{% endif %}
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}

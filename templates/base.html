@@ -1,43 +1,85 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <title>{{ title if title else "Troca XML Web" }}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body{font-family:Arial, sans-serif; margin: 24px;}
-    nav a{margin-right:12px;}
-    .card{border:1px solid #ddd; border-radius:10px; padding:16px; margin:12px 0;}
-    textarea{width:100%; min-height:140px;}
-    table{border-collapse:collapse; width:100%;}
-    th,td{border:1px solid #ddd; padding:8px; text-align:left;}
-    .erro{background:#ffe8e8; border:1px solid #ffb3b3; padding:10px; border-radius:8px;}
-    .ok{background:#e8fff0; border:1px solid #b3ffd0; padding:10px; border-radius:8px;}
-    .btn{padding:10px 14px; border:1px solid #333; background:#fff; border-radius:8px; cursor:pointer;}
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Troca XML Web - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="{{ url_for('index') }}" class="nav-logo">
+                📋 Troca XML Web
+            </a>
+            <div class="nav-links">
+                <a href="{{ url_for('index') }}" class="nav-link {% if request.path == '/' %}active{% endif %}">
+                    <i data-lucide="home" class="nav-icon"></i> Início
+                </a>
+                <a href="{{ url_for('sessao') }}" class="nav-link {% if request.path == '/sessao' %}active{% endif %}">
+                    <i data-lucide="database" class="nav-icon"></i> Sessão
+                </a>
+                <a href="{{ url_for('nota') }}" class="nav-link {% if request.path == '/nota' %}active{% endif %}">
+                    <i data-lucide="file-text" class="nav-icon"></i> Nota Única
+                </a>
+                <a href="{{ url_for('lote') }}" class="nav-link {% if request.path == '/lote' %}active{% endif %}">
+                    <i data-lucide="folder-archive" class="nav-icon"></i> Lote
+                </a>
+                <a href="{{ url_for('resumo') }}" class="nav-link {% if request.path == '/resumo' %}active{% endif %}">
+                    <i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo
+                </a>
+                <a href="{{ url_for('csv') }}" class="nav-link {% if request.path == '/csv' %}active{% endif %}">
+                    <i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV
+                </a>
+            </div>
+            <div class="session-indicator" id="sessionIndicator">
+                <span id="sessionStatus">Sem sessão ativa</span>
+            </div>
+        </div>
+    </nav>
 
-<nav>
-  <a href="/">Início</a>
-  <a href="/lote">Lote</a>
-  <a href="/nota">Nota Única</a>
-  <a href="/csv">CSV</a>
-  <a href="/resumo">Resumo</a>
-</nav>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
 
-<hr>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="{{ 'erro' if category=='erro' else 'ok' }}">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
-
-{% block content %}{% endblock %}
-
+    <script>
+        // Inicializa ícones Lucide
+        lucide.createIcons();
+        
+        // Sistema de sessão
+        class SessionManager {
+            constructor() {
+                this.sessionId = localStorage.getItem('sessionId');
+                this.updateIndicator();
+            }
+            
+            createSession() {
+                fetch('/api/sessao/criar', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        this.sessionId = data.session_id;
+                        localStorage.setItem('sessionId', this.sessionId);
+                        this.updateIndicator();
+                    });
+            }
+            
+            updateIndicator() {
+                const indicator = document.getElementById('sessionIndicator');
+                const status = document.getElementById('sessionStatus');
+                
+                if (this.sessionId) {
+                    indicator.className = 'session-indicator active';
+                    status.textContent = `Sessão: ${this.sessionId.substring(0,8)}...`;
+                } else {
+                    indicator.className = 'session-indicator';
+                    status.textContent = 'Sem sessão ativa';
+                }
+            }
+        }
+        
+        window.sessionManager = new SessionManager();
+    </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
