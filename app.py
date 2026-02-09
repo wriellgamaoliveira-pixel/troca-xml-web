@@ -1,355 +1,125 @@
-from __future__ import annotations
-
-import io
-
+from flask import Flask, render_template, request, jsonify, send_file, session
+from core import XMLProcessor, SessionManager
 import os
-import time
 import uuid
-import threading
-import tempfile
-from flask import jsonify, redirect, url_for
-from flask import Flask, render_template, request, send_file, flash
-
-from core import (
-    carregar_cclass_lista,
-    cclass_desc_map,
-    parse_regras_texto,
-    processar_lote_zip,
-    processar_lote_zip_path,  # <<< LOTE por arquivo + progresso
-
-    gerar_csv_de_zip,
-    gerar_resumo_de_zip,
-    gerar_resumo_de_zip_path,  # <<< RESUMO por arquivo + progresso
-
-    gerar_dados_nota_xml,  # <<< NOTA
-)
+import json
+from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "troca-xml"
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB
 
-_CCLASS_LISTA = None
-_DESC_MAP = None
+# Inicializa processadores
+xml_processor = XMLProcessor()
+session_manager = SessionManager()
 
-
-# =========================
-# Jobs em memória (resumo)
-# =========================
-_JOBS = {}
-_JOBS_LOCK = threading.Lock()
-
-
-def _job_set(job_id: str, **kwargs):
-    with _JOBS_LOCK:
-        _JOBS.setdefault(job_id, {})
-        _JOBS[job_id].update(kwargs)
-
-
-def _job_get(job_id: str):
-    with _JOBS_LOCK:
-        return dict(_JOBS.get(job_id, {}))
-
-
-def _processar_resumo_job(job_id: str, zip_path: str, desc_map: dict):
-    try:
-        _job_set(job_id, status="running", processed=0, total=0, started_at=time.time())
-
-        def on_prog(p, t):
-            _job_set(job_id, processed=p, total=t)
-
-        resumo_data = gerar_resumo_de_zip_path(zip_path, desc_map=desc_map, on_progress=on_prog)
-        _job_set(job_id, status="done", result=resumo_data, finished_at=time.time())
-    except Exception as e:
-        _job_set(job_id, status="error", error=str(e), finished_at=time.time())
-    finally:
-        try:
-            os.remove(zip_path)
-        except Exception:
-            pass
-
-
-def _load_cclass():
-    global _CCLASS_LISTA, _DESC_MAP
-    if _CCLASS_LISTA is None:
-        _CCLASS_LISTA = carregar_cclass_lista()
-        _DESC_MAP = cclass_desc_map(_CCLASS_LISTA)
-    return _CCLASS_LISTA, _DESC_MAP
-
-
-@app.get("/")
+@app.route('/')
 def index():
-    return render_template("index.html")
+    """Página inicial"""
+    return render_template('index.html')
 
+@app.route('/sessao')
+def sessao():
+    """Página de sessão"""
+    return render_template('sessao.html')
 
-# =========================
-# LOTE (assíncrono com progresso)
-# =========================
-@app.get("/lote")
-def lote():
-    cclass_lista, _ = _load_cclass()
-    return render_template("lote.html", cclass_lista=cclass_lista)
-
-
-@app.post("/lote/processar")
-def lote_processar():
-    cclass_lista, _ = _load_cclass()
-
-    fzip = request.files.get("zip_xmls")
-    if not fzip:
-        flash("Envie um arquivo .zip")
-        return render_template("lote.html", cclass_lista=cclass_lista)
-
-    remover_desconto = bool(request.form.get("remover_desconto"))
-    remover_outros = bool(request.form.get("remover_outros"))
-
-    # FIX: o textarea no lote.html chama regras_cclass_cfop
-    regras_txt = request.form.get("regras_cclass_cfop", "") or ""
-    regras = parse_regras_texto(regras_txt)
-
-    job_id = uuid.uuid4().hex[:12]
-    tmp_dir = tempfile.gettempdir()
-    zip_path = os.path.join(tmp_dir, f"nfcom_lote_{job_id}.zip")
-    out_path = os.path.join(tmp_dir, f"nfcom_lote_out_{job_id}.zip")
-    fzip.save(zip_path)
-
-    _job_set(job_id, status="queued", processed=0, total=0, kind="lote")
-
-    th = threading.Thread(
-        target=_processar_lote_job,
-        args=(job_id, zip_path, out_path, regras, remover_desconto, remover_outros),
-        daemon=True,
-    )
-    th.start()
-
-    return render_template("lote_loading.html", job_id=job_id)
-
-
-@app.get("/lote/status/<job_id>")
-def lote_status(job_id: str):
-    j = _job_get(job_id)
-    if not j:
-        return jsonify({"ok": False, "status": "not_found"}), 404
-
-    processed = int(j.get("processed", 0) or 0)
-    total = int(j.get("total", 0) or 0)
-    status = j.get("status", "queued")
-
-    pct = 0
-    if total > 0:
-        pct = int((processed / total) * 100)
-
-    return jsonify({
-        "ok": True,
-        "status": status,
-        "processed": processed,
-        "total": total,
-        "pct": pct,
-        "error": j.get("error", ""),
-        "done": status == "done",
-    })
-
-
-@app.get("/lote/baixar/<job_id>")
-def lote_baixar(job_id: str):
-    j = _job_get(job_id)
-    if not j:
-        flash("Job não encontrado ou expirou.")
-        return redirect(url_for("lote"))
-
-    if j.get("status") == "error":
-        flash(f"Erro ao processar: {j.get('error', 'desconhecido')}")
-        return redirect(url_for("lote"))
-
-    if j.get("status") != "done":
-        return render_template("lote_loading.html", job_id=job_id)
-
-    out_path = j.get("out_path")
-    if not out_path:
-        flash("Arquivo de saída não encontrado.")
-        return redirect(url_for("lote"))
-
-    return send_file(
-        out_path,
-        as_attachment=True,
-        download_name="resultado.zip",
-        mimetype="application/zip",
-    )
-
-
-# =========================
-# NOTA ÚNICA (VISUALIZAÇÃO)
-# =========================
-@app.get("/nota")
+@app.route('/nota')
 def nota():
-    # Página com upload do XML (template nota.html)
-    return render_template("nota.html")
+    """Página de nota única"""
+    return render_template('nota.html')
 
+@app.route('/lote')
+def lote():
+    """Página de lote"""
+    return render_template('lote.html')
 
-@app.post("/nota/visualizar")
-def nota_visualizar():
-    fxml = request.files.get("xml_nota")
-    if not fxml:
-        flash("Envie um XML.")
-        return render_template("nota.html")
-
-    try:
-        xml_bytes = fxml.read()
-        d = gerar_dados_nota_xml(xml_bytes)
-        # Renderiza exatamente o seu template de DANFECom/resultado
-        return render_template("resultado.html", d=d)
-    except Exception as e:
-        flash(f"Erro ao processar XML: {e}")
-        return render_template("nota.html")
-
-
-# =========================
-# CSV
-# =========================
-@app.get("/csv")
-def csv_page():
-    return render_template("csv.html")
-
-
-@app.post("/csv/gerar")
-def csv_gerar():
-    fzip = request.files.get("zip_xmls")
-    if not fzip:
-        flash("Envie um arquivo .zip")
-        return render_template("csv.html")
-
-    mapping_txt = request.form.get("mapping_txt", "")
-    mapping = []
-    for l in (mapping_txt or "").splitlines():
-        l = l.strip()
-        if not l or l.startswith("#"):
-            continue
-        if ";" in l:
-            a, b = [x.strip() for x in l.split(";", 1)]
-            if a and b:
-                mapping.append((a, b))
-
-    if not mapping:
-        flash("Informe o mapeamento no formato CABEÇALHO;TAG")
-        return render_template("csv.html")
-
-    out = gerar_csv_de_zip(fzip.read(), mapping)
-
-    return send_file(
-        io.BytesIO(out),
-        as_attachment=True,
-        download_name="relatorio.csv",
-        mimetype="text/csv",
-    )
-
-
-
-
-def _processar_lote_job(job_id: str, zip_path: str, out_path: str, regras: dict, remover_desc: bool, remover_outros: bool):
-    try:
-        _job_set(job_id, status="running", processed=0, total=0, started_at=time.time())
-        def on_prog(p, t):
-            _job_set(job_id, processed=p, total=t)
-
-        processar_lote_zip_path(
-            zip_path,
-            out_path,
-            regras=regras,
-            remover_desc=remover_desc,
-            remover_outros=remover_outros,
-            on_progress=on_prog,
-        )
-
-        _job_set(job_id, status="done", out_path=out_path, finished_at=time.time())
-    except Exception as e:
-        _job_set(job_id, status="error", error=str(e), finished_at=time.time())
-        # tenta limpar saída parcial
-        try:
-            import os
-            if out_path and os.path.exists(out_path):
-                os.remove(out_path)
-        except Exception:
-            pass
-    finally:
-        # limpa zip de entrada
-        try:
-            import os
-            if zip_path and os.path.exists(zip_path):
-                os.remove(zip_path)
-        except Exception:
-            pass
-
-
-# =========================
-# RESUMO
-# =========================
-@app.get("/resumo")
+@app.route('/resumo')
 def resumo():
-    return render_template("resumo.html", resumo=None)
+    """Página de resumo"""
+    return render_template('resumo.html')
 
+@app.route('/csv')
+def csv():
+    """Página de exportação CSV"""
+    return render_template('csv.html')
 
-@app.post("/resumo/gerar")
-def resumo_gerar():
-    _, desc_map = _load_cclass()
+# APIs
+@app.route('/api/sessao/criar', methods=['POST'])
+def criar_sessao():
+    """Cria uma nova sessão"""
+    session_id = str(uuid.uuid4())
+    session['session_id'] = session_id
+    session_manager.criar_sessao(session_id)
+    return jsonify({'session_id': session_id, 'ttl': 14400})
 
-    fzip = request.files.get("zip_xmls")
-    if not fzip:
-        flash("Envie um arquivo .zip")
-        return render_template("resumo.html", resumo=None)
-
-    # salva zip no disco (evita RAM) e processa em background
-    job_id = uuid.uuid4().hex[:12]
-    tmp_dir = tempfile.gettempdir()
-    zip_path = os.path.join(tmp_dir, f"nfcom_{job_id}.zip")
-    fzip.save(zip_path)
-
-    _job_set(job_id, status="queued", processed=0, total=0)
-
-    th = threading.Thread(target=_processar_resumo_job, args=(job_id, zip_path, desc_map), daemon=True)
-    th.start()
-
-    return render_template("resumo_loading.html", job_id=job_id)
-
-
-@app.get("/resumo/status/<job_id>")
-def resumo_status(job_id: str):
-    j = _job_get(job_id)
-    if not j:
-        return jsonify({"ok": False, "status": "not_found"}), 404
-
-    processed = int(j.get("processed", 0) or 0)
-    total = int(j.get("total", 0) or 0)
-    status = j.get("status", "queued")
-
-    pct = 0
-    if total > 0:
-        pct = int((processed / total) * 100)
-
+@app.route('/api/sessao/upload-chunk', methods=['POST'])
+def upload_chunk():
+    """Upload de chunk de arquivo"""
+    if 'chunk' not in request.files:
+        return jsonify({'error': 'Nenhum chunk enviado'}), 400
+    
+    session_id = request.form.get('session_id')
+    chunk_index = int(request.form.get('chunk_index', 0))
+    total_chunks = int(request.form.get('total_chunks', 1))
+    
+    chunk = request.files['chunk']
+    
+    # Salva chunk temporariamente
+    result = session_manager.salvar_chunk(session_id, chunk_index, chunk)
+    
     return jsonify({
-        "ok": True,
-        "status": status,
-        "processed": processed,
-        "total": total,
-        "pct": pct,
-        "error": j.get("error", ""),
-        "done": status == "done",
+        'success': True,
+        'chunk': chunk_index,
+        'total': total_chunks,
+        'chunkSize': f"{len(chunk.read()) / 1024 / 1024:.2f}"
     })
 
+@app.route('/api/sessao/processar', methods=['POST'])
+def processar_sessao():
+    """Processa XMLs da sessão"""
+    session_id = request.json.get('session_id')
+    opcoes = request.json.get('opcoes', {})
+    
+    resultado = xml_processor.processar_sessao(session_id, opcoes)
+    
+    return jsonify(resultado)
 
-@app.get("/resumo/resultado/<job_id>")
-def resumo_resultado(job_id: str):
-    j = _job_get(job_id)
-    if not j:
-        flash("Job não encontrado ou expirou.")
-        return redirect(url_for("resumo"))
+@app.route('/api/resumo/gerar', methods=['POST'])
+def gerar_resumo():
+    """Gera resumo consolidado"""
+    session_id = request.json.get('session_id')
+    resultado = xml_processor.gerar_resumo(session_id)
+    
+    return jsonify(resultado)
 
-    if j.get("status") == "error":
-        flash(f"Erro ao processar: {j.get('error', 'desconhecido')}")
-        return redirect(url_for("resumo"))
+@app.route('/api/lote/processar', methods=['POST'])
+def processar_lote():
+    """Processa lote com regras"""
+    session_id = request.json.get('session_id')
+    regras = request.json.get('regras', [])
+    
+    resultado = xml_processor.processar_lote(session_id, regras)
+    
+    # Gera arquivo ZIP para download
+    zip_path = f"temp/{session_id}_processado.zip"
+    resultado['download_url'] = f"/download/{session_id}"
+    
+    return jsonify(resultado)
 
-    if j.get("status") != "done":
-        return render_template("resumo_loading.html", job_id=job_id)
+@app.route('/download/<session_id>')
+def download_arquivo(session_id):
+    """Download de arquivo processado"""
+    zip_path = f"temp/{session_id}_processado.zip"
+    return send_file(zip_path, as_attachment=True)
 
-    return render_template("resumo.html", resumo=j.get("result"))
+@app.route('/api/sessao/status')
+def status_sessao():
+    """Retorna status da sessão"""
+    session_id = request.args.get('session_id')
+    status = session_manager.get_status(session_id)
+    return jsonify(status)
 
-
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__ == '__main__':
+    os.makedirs('temp', exist_ok=True)
+    os.makedirs('sessoes', exist_ok=True)
+    app.run(debug=True, port=5000)
