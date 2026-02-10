@@ -5,15 +5,12 @@ import json
 from datetime import datetime
 import zipfile
 import io
-import tempfile
 import xml.etree.ElementTree as ET
 import pandas as pd
 
-# =========================================================
-# APP
-# =========================================================
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-troca-xml-2024")
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-troca-xml-web")
+
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 
 TEMP_DIR = "temp"
@@ -22,7 +19,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # =========================================================
-# REDIS (fallback FakeRedis caso REDIS_URL não exista)
+# Redis (fallback em memória)
 # =========================================================
 class FakeRedis:
     def __init__(self):
@@ -52,7 +49,7 @@ def get_redis():
     if not redis_url:
         return FakeRedis()
     try:
-        import redis  # redis==5.x
+        import redis
         return redis.Redis.from_url(redis_url)
     except Exception:
         return FakeRedis()
@@ -61,24 +58,20 @@ def get_redis():
 redis_store = get_redis()
 
 def redis_setex(key: str, ttl: int, value: bytes):
-    # FakeRedis aceita qualquer tipo; redis real precisa bytes/str
-    if hasattr(redis_store, "setex"):
-        return redis_store.setex(key, ttl, value)
-    return None
+    return redis_store.setex(key, ttl, value)
 
 def redis_get(key: str):
-    if hasattr(redis_store, "get"):
-        return redis_store.get(key)
-    return None
+    return redis_store.get(key)
 
 def redis_ttl(key: str):
-    if hasattr(redis_store, "ttl"):
+    try:
         return redis_store.ttl(key)
-    return 0
+    except Exception:
+        return 0
 
 
 # =========================================================
-# UTIL: formatação
+# Helpers formatação BR
 # =========================================================
 def br_money(v: float) -> str:
     try:
@@ -87,7 +80,6 @@ def br_money(v: float) -> str:
         return "R$ 0,00"
 
 def br_date(iso: str) -> str:
-    # tenta converter 2025-12-04T... -> 04/12/2025
     if not iso:
         return ""
     try:
@@ -101,7 +93,7 @@ def br_date(iso: str) -> str:
 
 
 # =========================================================
-# XML: parse simples (NFe / NFCom)
+# XML: parse básico (NFe / NFCom)
 # =========================================================
 def _text(node):
     return node.text.strip() if node is not None and node.text else None
@@ -187,14 +179,12 @@ def parse_nfcom(root: ET.Element):
         "totais": {},
     }
 
-    # Itens NFCom variam por schema; tentamos pegar det (se existir) + fallback
     total = 0.0
     dets = inf.findall(".//nfcom:det", ns) if inf is not None else []
     for det in dets:
         prod = det.find(".//nfcom:prod", ns)
         if prod is None:
             continue
-
         vprod = float(_text(prod.find("nfcom:vProd", ns)) or 0)
         total += vprod
         dados["itens"].append(
@@ -215,7 +205,7 @@ def parse_nfcom(root: ET.Element):
 def parse_xml(xml_text: str):
     root = detect_root(xml_text)
     if root is None:
-        return {"error": "XML inválido (parse falhou)"}
+        return {"error": "XML inválido"}
 
     tag = root.tag.lower()
     if tag.endswith("nfe"):
@@ -223,20 +213,19 @@ def parse_xml(xml_text: str):
     if tag.endswith("nfcom"):
         return parse_nfcom(root)
 
-    # fallback: tenta procurar filhos
-    # (alguns XMLs vêm como <nfeProc> etc)
-    if root.find(".//{http://www.portalfiscal.inf.br/nfe}NFe") is not None:
-        nfe = root.find(".//{http://www.portalfiscal.inf.br/nfe}NFe")
+    # fallback: nfeProc / nfcomProc
+    nfe = root.find(".//{http://www.portalfiscal.inf.br/nfe}NFe")
+    if nfe is not None:
         return parse_nfe(nfe)
-    if root.find(".//{http://www.portalfiscal.inf.br/nfcom}NFCom") is not None:
-        nfcom = root.find(".//{http://www.portalfiscal.inf.br/nfcom}NFCom")
+    nfcom = root.find(".//{http://www.portalfiscal.inf.br/nfcom}NFCom")
+    if nfcom is not None:
         return parse_nfcom(nfcom)
 
-    return {"error": "Tipo XML não suportado (não é NFe/NFCom)"}
+    return {"error": "Tipo XML não suportado (apenas NFe/NFCom)"}
 
 
 # =========================================================
-# ROTAS PÁGINAS
+# Páginas
 # =========================================================
 @app.route("/")
 def index():
@@ -260,7 +249,6 @@ def resumo_page():
 
 @app.route("/resumo/resultado")
 def resumo_resultado_page():
-    # Se tiver dados na sessão, usa; senão usa exemplo
     dados = session.get("resumo_data") or gerar_dados_exemplo()
     return render_template("resumo_resultado.html", data=dados)
 
@@ -270,7 +258,7 @@ def csv_page():
 
 
 # =========================================================
-# API - RESUMO (compatível com seu resumo.html)
+# API - Resumo
 # =========================================================
 @app.route("/api/resumo/upload", methods=["POST"])
 def api_resumo_upload():
@@ -282,14 +270,14 @@ def api_resumo_upload():
         if not f.filename:
             return jsonify({"success": False, "error": "Nome de arquivo vazio"}), 400
         if not f.filename.lower().endswith(".zip"):
-            return jsonify({"success": False, "error": "Apenas arquivos ZIP são aceitos"}), 400
+            return jsonify({"success": False, "error": "Envie um arquivo .zip"}), 400
 
         session_id = str(uuid.uuid4())
         zip_path = os.path.join(UPLOADS_DIR, f"{session_id}.zip")
         f.save(zip_path)
 
-        dados = processar_zip_resumo(zip_path)
-
+        # Aqui pode entrar o parser real (por agora: exemplo + debug)
+        dados = gerar_dados_exemplo()
         session["resumo_session_id"] = session_id
         session["resumo_data"] = dados
 
@@ -297,18 +285,9 @@ def api_resumo_upload():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/api/resumo/dados")
-def api_resumo_dados():
-    sid = request.args.get("session_id")
-    if sid and sid == session.get("resumo_session_id"):
-        dados = session.get("resumo_data") or gerar_dados_exemplo()
-    else:
-        dados = gerar_dados_exemplo()
-    return jsonify(dados)
-
 
 # =========================================================
-# API - NOTA ÚNICA
+# API - Nota única
 # =========================================================
 @app.route("/api/nota/visualizar", methods=["POST"])
 def api_nota_visualizar():
@@ -326,7 +305,7 @@ def api_nota_visualizar():
 
 
 # =========================================================
-# API - SESSÃO (simples)
+# API - Sessão (simples)
 # =========================================================
 @app.route("/api/sessao/criar", methods=["POST"])
 def api_sessao_criar():
@@ -337,13 +316,10 @@ def api_sessao_criar():
         "id": session_id,
         "criado_em": datetime.now().isoformat(),
         "status": "ativa",
-        "arquivos": [],
         "chunks_recebidos": 0,
     }
 
-    # 4 horas
     redis_setex(f"session:{session_id}", 14400, json.dumps(sessao_data).encode("utf-8"))
-
     return jsonify({"success": True, "session_id": session_id, "ttl": 14400})
 
 @app.route("/api/sessao/status")
@@ -359,8 +335,8 @@ def api_sessao_status():
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8", errors="replace")
     data = json.loads(raw)
-
     ttl = redis_ttl(f"session:{session_id}")
+
     return jsonify(
         {
             "success": True,
@@ -371,90 +347,41 @@ def api_sessao_status():
         }
     )
 
-@app.route("/api/sessao/upload-chunk", methods=["POST"])
-def api_sessao_upload_chunk():
-    try:
-        if "chunk" not in request.files:
-            return jsonify({"success": False, "error": "Nenhum chunk enviado"}), 400
-
-        session_id = request.form.get("session_id")
-        if not session_id:
-            return jsonify({"success": False, "error": "session_id é obrigatório"}), 400
-
-        chunk_index = int(request.form.get("chunk_index", 0))
-        total_chunks = int(request.form.get("total_chunks", 1))
-
-        chunk = request.files["chunk"].read()
-
-        redis_setex(f"session:chunk:{session_id}:{chunk_index}", 14400, chunk)
-
-        raw = redis_get(f"session:{session_id}")
-        if raw:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8", errors="replace")
-            sessao_data = json.loads(raw)
-            sessao_data["chunks_recebidos"] = int(sessao_data.get("chunks_recebidos", 0)) + 1
-            redis_setex(f"session:{session_id}", 14400, json.dumps(sessao_data).encode("utf-8"))
-
-        return jsonify({"success": True, "chunk": chunk_index, "total": total_chunks})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
 
 # =========================================================
-# API - LOTE (aceita multipart OU json)
+# API - Lote (dummy ZIP -> ZIP)
 # =========================================================
 @app.route("/api/lote/processar", methods=["POST"])
 def api_lote_processar():
     try:
-        # JSON (fallback)
-        if request.is_json:
-            data = request.get_json(silent=True) or {}
-            session_id = data.get("session_id", str(uuid.uuid4()))
-            regras = data.get("regras", {})
-        else:
-            # multipart/form-data (mais comum em HTML)
-            session_id = request.form.get("session_id") or str(uuid.uuid4())
-            regras_texto = request.form.get("regras_cclass_cfop", "") or ""
-            remover_desconto = (request.form.get("remover_desconto", "false") == "true")
-            remover_outros = (request.form.get("remover_outros", "false") == "true")
-            regras = {
-                "texto": regras_texto,
-                "remover_desconto": remover_desconto,
-                "remover_outros": remover_outros,
-            }
+        session_id = request.form.get("session_id") or str(uuid.uuid4())
+        regras_texto = request.form.get("regras_cclass_cfop", "") or ""
+        remover_desconto = (request.form.get("remover_desconto", "false") == "true")
+        remover_outros = (request.form.get("remover_outros", "false") == "true")
 
-        # Se veio ZIP, só guardamos (dummy)
-        zip_file = request.files.get("zip_xmls")
-        if zip_file and zip_file.filename:
-            _ = zip_file.read()  # aqui você processaria de verdade
+        regras = {
+            "texto": regras_texto,
+            "remover_desconto": remover_desconto,
+            "remover_outros": remover_outros,
+        }
 
-        # Gera ZIP de resposta (dummy)
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as z:
-            z.writestr("processado.txt", f"XMLs processados com regras:\n{json.dumps(regras, ensure_ascii=False, indent=2)}\n")
-            z.writestr("relatorio.txt", "Relatório de processamento: exemplo (sem parser completo)\n")
+            z.writestr("processado.txt", f"XMLs processados (demo)\n\nRegras:\n{json.dumps(regras, ensure_ascii=False, indent=2)}\n")
+            z.writestr("relatorio.txt", "Relatório de processamento: demo\n")
 
         zip_buffer.seek(0)
-
         zip_path = os.path.join(TEMP_DIR, f"{session_id}_processado.zip")
         with open(zip_path, "wb") as f:
             f.write(zip_buffer.getvalue())
 
-        return jsonify(
-            {
-                "success": True,
-                "session_id": session_id,
-                "arquivos_processados": 0,
-                "download_url": f"/download/{session_id}",
-            }
-        )
+        return jsonify({"success": True, "session_id": session_id, "download_url": f"/download/{session_id}"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 # =========================================================
-# API - CSV (gera CSV simples a partir de XMLs no ZIP)
+# API - CSV (gera CSV simples do ZIP)
 # =========================================================
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
@@ -466,8 +393,6 @@ def api_csv_gerar():
         if not zf.filename.lower().endswith(".zip"):
             return jsonify({"success": False, "error": "Envie um arquivo .zip"}), 400
 
-        # Mapeamento simples (coluna=path) opcional
-        # Exemplo aceito: nNF;data;emitente_nome;dest_nome
         campos = (request.form.get("campos", "") or "").strip()
         requested = [c.strip() for c in campos.split(";") if c.strip()] if campos else []
 
@@ -494,9 +419,8 @@ def api_csv_gerar():
                     "dest_doc": (d.get("destinatario") or {}).get("doc"),
                     "total_vProd": (d.get("totais") or {}).get("vProd"),
                 }
-
                 if requested:
-                    row = {k: row.get(k) for k in requested if k in row}  # filtra
+                    row = {k: row.get(k) for k in requested if k in row}
                     if "arquivo" not in row:
                         row["arquivo"] = name
                 rows.append(row)
@@ -507,18 +431,13 @@ def api_csv_gerar():
         df = pd.DataFrame(rows)
         csv_bytes = df.to_csv(index=False).encode("utf-8")
 
-        return send_file(
-            io.BytesIO(csv_bytes),
-            as_attachment=True,
-            download_name="export.csv",
-            mimetype="text/csv",
-        )
+        return send_file(io.BytesIO(csv_bytes), as_attachment=True, download_name="export.csv", mimetype="text/csv")
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 # =========================================================
-# DOWNLOAD
+# Download ZIP lote
 # =========================================================
 @app.route("/download/<session_id>")
 def download_file(session_id):
@@ -526,26 +445,20 @@ def download_file(session_id):
     if os.path.exists(zip_path):
         return send_file(zip_path, as_attachment=True, download_name=f"processado_{session_id}.zip")
 
-    # fallback
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as z:
-        z.writestr("exemplo.txt", "Arquivo processado pelo Troca XML Web")
+        z.writestr("exemplo.txt", "Arquivo processado (demo)")
     zip_buffer.seek(0)
     return send_file(zip_buffer, as_attachment=True, download_name=f"processado_{session_id}.zip", mimetype="application/zip")
 
 
 # =========================================================
-# RESUMO (mantém seu layout e dados)
+# Dados exemplo (layout novo)
 # =========================================================
-def processar_zip_resumo(zip_path: str):
-    # Aqui você colocaria o parser real.
-    # Por agora, mantém o comportamento do seu app: retorna exemplo.
-    return gerar_dados_exemplo()
-
 def gerar_dados_exemplo():
     return {
         "emitente_nome": "NOVA TELECOM LTDA",
-        "emitente_cnpj": "01.555.241/0001-20",
+        "emitente_cnpj": "87.783.220/0017-80",
         "total_arquivos": 3,
         "total_geral": 185033.16,
         "total_geral_br": "R$ 185.033,16",
@@ -612,15 +525,24 @@ def gerar_dados_exemplo():
                 ],
             },
             {
-                "item": "167",
-                "desc": "GOV SCI 20 MBPS",
-                "cClass": "600601",
-                "qtd_itens": 8,
-                "v_total": 34609.06,
-                "v_total_br": "R$ 34.609,06",
-                "pct": 18.70,
-                "pct_br": "18,70%",
-                "notas": [],
+                "item": "158",
+                "desc": "GOV SCM 40 MBPS",
+                "cClass": "400401",
+                "qtd_itens": 1,
+                "v_total": 713.51,
+                "v_total_br": "R$ 713,51",
+                "pct": 0.39,
+                "pct_br": "0,39%",
+                "notas": [
+                    {
+                        "nNF": "10841",
+                        "cNF": "730003",
+                        "xNome": "NOVA TELECOM LTDA",
+                        "xContato": "AGENCIA DE REGULACAO, CONTROLE E FISCALIZACAO DE SERVICOS PU",
+                        "dhEmi_fmt": "04/12/2025",
+                        "vProd_br": "R$ 713,51",
+                    }
+                ],
             },
         ],
         "impostos_linhas": [
@@ -635,43 +557,44 @@ def gerar_dados_exemplo():
                     {
                         "nNF": "10907",
                         "cNF": "336482",
-                        "xNome": "NOVA TELECOM LTDA",
-                        "xContato": "AGENCIA DE DEFESA AGROPECUARIA DO ESTADO DO TOCANTINS",
-                        "dhEmi_fmt": "05/12/2025",
-                        "pis_ret": 0.00,
-                        "cofins_ret": 0.00,
-                        "csll_ret": 0.00,
-                        "irrf_ret": 6927.36,
-                        "total_retido": 6927.36,
-                    }
+                        "emitente": "NOVA TELECOM LTDA",
+                        "destinatario": "AGENCIA DE DEFESA AGROPECUARIA DO ESTADO DO TOCANTINS",
+                        "emissao": "05/12/2025",
+                        "pis_ret": "R$ 0,00",
+                        "cofins_ret": "R$ 0,00",
+                        "csll_ret": "R$ 0,00",
+                        "irrf_ret": "R$ 6.927,36",
+                        "total_retido": "R$ 6.927,36",
+                    },
+                    {
+                        "nNF": "10896",
+                        "cNF": "212182",
+                        "emitente": "NOVA TELECOM LTDA",
+                        "destinatario": "AGENCIA DE TECNOLOGIA DA INFORMACAO",
+                        "emissao": "05/12/2025",
+                        "pis_ret": "R$ 0,00",
+                        "cofins_ret": "R$ 0,00",
+                        "csll_ret": "R$ 0,00",
+                        "irrf_ret": "R$ 1.593,60",
+                        "total_retido": "R$ 1.593,60",
+                    },
+                    {
+                        "nNF": "10841",
+                        "cNF": "730003",
+                        "emitente": "NOVA TELECOM LTDA",
+                        "destinatario": "AGENCIA DE REGULACAO, CONTROLE E FISCALIZACAO DE SERVICOS PU",
+                        "emissao": "04/12/2025",
+                        "pis_ret": "R$ 0,00",
+                        "cofins_ret": "R$ 0,00",
+                        "csll_ret": "R$ 0,00",
+                        "irrf_ret": "R$ 360,63",
+                        "total_retido": "R$ 360,63",
+                    },
                 ],
             }
         ],
         "debug": {"total_xml": 3, "total_ok": 3, "total_falhas": 0, "primeiro_erro": None},
     }
-
-def limpar_temporarios():
-    agora = datetime.now().timestamp()
-    for dir_path in [TEMP_DIR, UPLOADS_DIR]:
-        if os.path.exists(dir_path):
-            for filename in os.listdir(dir_path):
-                file_path = os.path.join(dir_path, filename)
-                if os.path.isfile(file_path):
-                    age = agora - os.path.getmtime(file_path)
-                    if age > 86400:
-                        try:
-                            os.remove(file_path)
-                        except Exception:
-                            pass
-
-@app.before_request
-def before_request():
-    if not hasattr(app, "last_cleanup"):
-        app.last_cleanup = datetime.now().timestamp()
-    agora = datetime.now().timestamp()
-    if agora - app.last_cleanup > 3600:
-        limpar_temporarios()
-        app.last_cleanup = agora
 
 
 if __name__ == "__main__":
