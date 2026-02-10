@@ -1,167 +1,56 @@
 {% extends "base.html" %}
-
-{% block title %}Exportar CSV{% endblock %}
+{% block title %}CSV{% endblock %}
 
 {% block content %}
-<div class="header">
-    <h1><i data-lucide="file-spreadsheet"></i> Exportar para CSV</h1>
-    <p class="subtitle">Extraia dados com mapeamento personalizado</p>
-</div>
-
 <div class="card">
-    <h2>Configurar Exportação</h2>
-    
-    <div class="mapping-section">
-        <h3>Campos para Exportar</h3>
-        <div class="mapping-grid" id="fieldMappings">
-            <div class="mapping-row">
-                <select class="mapping-select">
-                    <option value="nNF">Número da Nota</option>
-                    <option value="dhEmi">Data Emissão</option>
-                    <option value="emitente">Emitente</option>
-                    <option value="cProd">Código Produto</option>
-                    <option value="xProd">Descrição Produto</option>
-                    <option value="CFOP">CFOP</option>
-                    <option value="vProd">Valor Produto</option>
-                </select>
-                <input type="text" placeholder="Nome da coluna no CSV" class="mapping-input">
-                <button class="btn btn-sm btn-outline" onclick="removeMapping(this)">
-                    <i data-lucide="trash-2"></i>
-                </button>
-            </div>
-        </div>
-        <button class="btn btn-secondary" onclick="addMapping()">
-            <i data-lucide="plus"></i> Adicionar Campo
-        </button>
-    </div>
-    
-    <div class="export-actions">
-        <button class="btn btn-primary" onclick="previewCSV()">
-            <i data-lucide="eye"></i> Pré-visualizar
-        </button>
-        <button class="btn btn-success" onclick="exportCSV()">
-            <i data-lucide="download"></i> Exportar CSV
-        </button>
-    </div>
-</div>
+  <h1 class="text-2xl font-bold mb-4">CSV</h1>
+  <p class="text-muted mb-6">Envie um ZIP com XMLs e gere um CSV simples.</p>
 
-<div id="previewSection" class="card" style="display: none;">
-    <h2>Pré-visualização</h2>
-    <div class="table-container">
-        <table class="data-table" id="previewTable">
-            <!-- Dados serão inseridos via JS -->
-        </table>
+  <form id="csvForm" class="space-y-4">
+    <div>
+      <label class="text-sm font-medium mb-2" style="display:block;">Arquivo ZIP</label>
+      <input type="file" name="zip_xmls" id="zipCsv" accept=".zip" class="input-field" required />
     </div>
-</div>
 
+    <div>
+      <label class="text-sm font-medium mb-2" style="display:block;">Campos (opcional, separados por “;”)</label>
+      <input type="text" id="campos" class="input-field" placeholder="arquivo;tipo;nNF;serie;cNF;dhEmi;emitente_nome;dest_nome;total_vProd" />
+      <p class="text-sm text-muted mt-1">Se vazio, exporta um conjunto padrão.</p>
+    </div>
+
+    <button type="submit" class="btn">
+      <i data-lucide="file-down"></i> Gerar CSV
+    </button>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
-let mappings = [];
+  document.getElementById('csvForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = document.getElementById('zipCsv').files[0];
+    if (!f) return alert('Selecione um ZIP.');
 
-function addMapping() {
-    const container = document.getElementById('fieldMappings');
-    const row = document.createElement('div');
-    row.className = 'mapping-row';
-    row.innerHTML = `
-        <select class="mapping-select">
-            <option value="nNF">Número da Nota</option>
-            <option value="dhEmi">Data Emissão</option>
-            <option value="emitente">Emitente</option>
-            <option value="cProd">Código Produto</option>
-            <option value="xProd">Descrição Produto</option>
-            <option value="CFOP">CFOP</option>
-            <option value="vProd">Valor Produto</option>
-        </select>
-        <input type="text" placeholder="Nome da coluna no CSV" class="mapping-input">
-        <button class="btn btn-sm btn-outline" onclick="removeMapping(this)">
-            <i data-lucide="trash-2"></i>
-        </button>
-    `;
-    container.appendChild(row);
-}
+    const fd = new FormData();
+    fd.append('zip_xmls', f);
+    fd.append('campos', document.getElementById('campos').value || '');
 
-function removeMapping(button) {
-    button.parentElement.remove();
-}
-
-function previewCSV() {
-    // Coleta mapeamentos
-    mappings = [];
-    document.querySelectorAll('#fieldMappings .mapping-row').forEach(row => {
-        const select = row.querySelector('.mapping-select');
-        const input = row.querySelector('.mapping-input');
-        if (select.value && input.value) {
-            mappings.push({
-                field: select.value,
-                columnName: input.value || select.options[select.selectedIndex].text
-            });
-        }
-    });
-    
-    // Simula dados de exemplo
-    const sampleData = [
-        { nNF: '12345', dhEmi: '2024-01-15', emitente: 'EMPRESA ABC', cProd: 'PROD001', xProd: 'Produto Teste', CFOP: '5307', vProd: '1500.00' },
-        { nNF: '12346', dhEmi: '2024-01-16', emitente: 'EMPRESA XYZ', cProd: 'PROD002', xProd: 'Outro Produto', CFOP: '5305', vProd: '2300.50' }
-    ];
-    
-    // Cria tabela de pré-visualização
-    const table = document.getElementById('previewTable');
-    table.innerHTML = '';
-    
-    // Cabeçalho
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    mappings.forEach(mapping => {
-        const th = document.createElement('th');
-        th.textContent = mapping.columnName;
-        headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-    
-    // Dados
-    const tbody = document.createElement('tbody');
-    sampleData.forEach(rowData => {
-        const tr = document.createElement('tr');
-        mappings.forEach(mapping => {
-            const td = document.createElement('td');
-            td.textContent = rowData[mapping.field] || '';
-            tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    
-    document.getElementById('previewSection').style.display = 'block';
-}
-
-function exportCSV() {
-    if (mappings.length === 0) {
-        alert('Configure pelo menos um campo para exportação!');
-        return;
+    const r = await fetch('/api/csv/gerar', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      return alert(j.error || 'Erro ao gerar CSV');
     }
-    
-    // Cria conteúdo CSV
-    let csvContent = mappings.map(m => m.columnName).join(';') + '\n';
-    
-    // Adiciona dados de exemplo (em produção, viria da API)
-    const sampleData = [
-        { nNF: '12345', dhEmi: '2024-01-15', emitente: 'EMPRESA ABC', cProd: 'PROD001', xProd: 'Produto Teste', CFOP: '5307', vProd: '1500.00' },
-        { nNF: '12346', dhEmi: '2024-01-16', emitente: 'EMPRESA XYZ', cProd: 'PROD002', xProd: 'Outro Produto', CFOP: '5305', vProd: '2300.50' }
-    ];
-    
-    sampleData.forEach(rowData => {
-        const row = mappings.map(m => rowData[m.field] || '').join(';');
-        csvContent += row + '\n';
-    });
-    
-    // Cria blob e link para download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+    const blob = await r.blob();
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'exportacao_xml.csv';
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'export.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     URL.revokeObjectURL(url);
-}
+  });
 </script>
 {% endblock %}

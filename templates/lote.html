@@ -1,89 +1,72 @@
 {% extends "base.html" %}
+{% block title %}Lote{% endblock %}
+
 {% block content %}
+<div class="card">
+  <h1 class="text-2xl font-bold mb-4">Lote (ZIP → ZIP)</h1>
+  <p class="text-muted mb-6">Envie um ZIP com XMLs e regras (cClass;CFOP) para gerar um ZIP processado.</p>
 
-<h1>Lote (ZIP → ZIP)</h1>
-
-<form action="/lote/processar" method="post" enctype="multipart/form-data">
-
-  <div class="card">
-    <p><b>Envie um .zip</b> com seus XMLs/TXT:</p>
-    <input type="file" name="zip_xmls" accept=".zip" required><br><br>
-
-    <label><input type="checkbox" name="remover_desconto"> Remover tags de desconto</label><br>
-    <label><input type="checkbox" name="remover_outros"> Remover tags de “outros”</label><br>
-  </div>
-
-  <div class="card">
-    <h3>Regras cClass → CFOP (por seleção)</h3>
-
-    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end;">
-      <div>
-        <label><b>cClass</b></label><br>
-        <select id="cclass_select">
-          <option value="">-- selecione um cClass --</option>
-          {% for item in cclass_lista %}
-            <option value="{{ item.code }}">{{ item.code }} - {{ item.desc }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div>
-        <label><b>CFOP</b></label><br>
-        <input id="cfop_input" type="text" inputmode="numeric" placeholder="Ex: 5102"
-               maxlength="4" style="width:120px;">
-      </div>
-
-      <button class="btn" type="button" onclick="adicionarRegra()">Adicionar</button>
+  <form id="loteForm" class="space-y-4">
+    <div>
+      <label class="text-sm font-medium mb-2" style="display:block;">Arquivo ZIP</label>
+      <input type="file" name="zip_xmls" id="zipLote" accept=".zip" class="input-field" required />
     </div>
 
-    <p style="margin-top:10px; font-size: 13px;">
-      As regras vão aparecer abaixo no formato <code>cClass;CFOP</code>.
-    </p>
+    <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+      <label class="text-sm">
+        <input type="checkbox" id="removerDesconto"> Remover desconto
+      </label>
+      <label class="text-sm">
+        <input type="checkbox" id="removerOutros"> Remover outros
+      </label>
+    </div>
 
-    <h3>Lista final de regras</h3>
-    <textarea
-      id="regras_box"
-      name="regras_cclass_cfop"
-      placeholder="060101;5102&#10;110201;5102"
-      style="width:100%; min-height:140px;"
-    ></textarea>
+    <div>
+      <label class="text-sm font-medium mb-2" style="display:block;">Regras (uma por linha): <code>cClass;CFOP</code></label>
+      <textarea id="regrasTexto" class="input-field" rows="6" placeholder="600601;5307&#10;400401;5307"></textarea>
+    </div>
 
-    <p style="font-size: 13px; opacity: 0.8;">
-      (Opcional) Você pode editar manualmente o texto acima. Uma regra por linha.
-    </p>
-  </div>
+    <button type="submit" class="btn">
+      <i data-lucide="wand-2"></i> Processar
+    </button>
+  </form>
+</div>
 
-  <button class="btn" type="submit">Processar e baixar resultado.zip</button>
+<div class="card hidden" id="loteResult">
+  <h2 class="text-xl font-bold mb-4">Download</h2>
+  <a class="btn btn-outline" id="btnDownload" href="#">
+    <i data-lucide="download"></i> Baixar ZIP processado
+  </a>
+</div>
+{% endblock %}
 
-</form>
-
+{% block extra_js %}
 <script>
-function adicionarRegra() {
-  const cclass = document.getElementById("cclass_select").value.trim();
-  const cfop = document.getElementById("cfop_input").value.trim();
-  const box = document.getElementById("regras_box");
+  const form = document.getElementById('loteForm');
+  const result = document.getElementById('loteResult');
+  const btn = document.getElementById('btnDownload');
 
-  if (!cclass) {
-    alert("Selecione um cClass.");
-    return;
-  }
-  if (!/^\d{4}$/.test(cfop)) {
-    alert("Informe um CFOP com 4 dígitos (ex: 5102).");
-    return;
-  }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = document.getElementById('zipLote').files[0];
+    if (!f) return alert('Selecione um ZIP.');
 
-  const nova = `${cclass};${cfop}`;
-  const linhas = (box.value || "").split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    const fd = new FormData();
+    fd.append('zip_xmls', f);
+    fd.append('remover_desconto', document.getElementById('removerDesconto').checked ? 'true' : 'false');
+    fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true' : 'false');
+    fd.append('regras_cclass_cfop', document.getElementById('regrasTexto').value || '');
 
-  if (linhas.includes(nova)) {
-    alert("Essa regra já existe.");
-    return;
-  }
+    const r = await fetch('/api/lote/processar', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!j.success) {
+      alert(j.error || 'Erro ao processar');
+      return;
+    }
 
-  linhas.push(nova);
-  box.value = linhas.join("\n");
-  document.getElementById("cfop_input").value = "";
-}
+    btn.href = j.download_url;
+    result.classList.remove('hidden');
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  });
 </script>
-
 {% endblock %}
