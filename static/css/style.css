@@ -298,3 +298,6 @@ td.center, th.center{ text-align:center; }
 /* Small utilities */
 .mt-8{ margin-top: 16px; }
 .gap-2{ gap: 8px; }
+
+/* Fix: permitir clique no botão de expandir (seta) */
+.chev-btn svg{ pointer-events:none; }
