@@ -262,6 +262,10 @@ def csv_page():
 # =========================================================
 @app.route("/api/resumo/upload", methods=["POST"])
 def api_resumo_upload():
+    """
+    Recebe um .zip com XMLs e gera o resumo real (cClass / Itens / Impostos retidos).
+    Salva o resultado na sessão para exibir em /resumo/resultado.
+    """
     try:
         if "file" not in request.files:
             return jsonify({"success": False, "error": "Nenhum arquivo enviado"}), 400
@@ -276,8 +280,8 @@ def api_resumo_upload():
         zip_path = os.path.join(UPLOADS_DIR, f"{session_id}.zip")
         f.save(zip_path)
 
-        # Aqui pode entrar o parser real (por agora: exemplo + debug)
-        dados = gerar_dados_exemplo()
+        dados = build_resumo_from_zip(zip_path)
+
         session["resumo_session_id"] = session_id
         session["resumo_data"] = dados
 
@@ -288,6 +292,8 @@ def api_resumo_upload():
 
 # =========================================================
 # API - Nota única
+
+
 # =========================================================
 @app.route("/api/nota/visualizar", methods=["POST"])
 def api_nota_visualizar():
@@ -353,27 +359,108 @@ def api_sessao_status():
 # =========================================================
 @app.route("/api/lote/processar", methods=["POST"])
 def api_lote_processar():
+    """
+    Processa um ZIP de XMLs, aplicando regras de cClass -> CFOP:
+      - Se existir <CFOP> no mesmo <prod> do <cClass>, troca pelo CFOP definido
+      - Se NÃO existir <CFOP>, cria a tag <CFOP> ao lado do <cClass>
+    Regras (textarea):
+      uma por linha: cClass;CFOP
+    """
     try:
+        if "zip_xmls" not in request.files:
+            return jsonify({"success": False, "error": "Envie o ZIP no campo zip_xmls"}), 400
+
+        zf = request.files["zip_xmls"]
+        if not zf.filename.lower().endswith(".zip"):
+            return jsonify({"success": False, "error": "Envie um arquivo .zip"}), 400
+
         session_id = request.form.get("session_id") or str(uuid.uuid4())
         regras_texto = request.form.get("regras_cclass_cfop", "") or ""
-        remover_desconto = (request.form.get("remover_desconto", "false") == "true")
-        remover_outros = (request.form.get("remover_outros", "false") == "true")
 
-        regras = {
-            "texto": regras_texto,
-            "remover_desconto": remover_desconto,
-            "remover_outros": remover_outros,
-        }
+        # ---- Parse regras ----
+        def norm(s: str) -> str:
+            s = (s or "").strip()
+            if s.isdigit():
+                s2 = s.lstrip("0")
+                return s2 if s2 else "0"
+            return s
 
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as z:
-            z.writestr("processado.txt", f"XMLs processados (demo)\n\nRegras:\n{json.dumps(regras, ensure_ascii=False, indent=2)}\n")
-            z.writestr("relatorio.txt", "Relatório de processamento: demo\n")
+        regras = {}
+        for line in regras_texto.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ";" not in line:
+                continue
+            cclass, cfop = [p.strip() for p in line.split(";", 1)]
+            if not cclass or not cfop:
+                continue
+            regras[cclass] = cfop
+            regras[norm(cclass)] = cfop  # permite casar sem zeros à esquerda
 
-        zip_buffer.seek(0)
+        if not regras:
+            return jsonify({"success": False, "error": "Informe pelo menos 1 regra no formato cClass;CFOP"}), 400
+
+        # ---- Processa ZIP ----
+        import io
+        from lxml import etree
+
+        zip_in = zipfile.ZipFile(io.BytesIO(zf.read()), "r")
+        out_buffer = io.BytesIO()
+        relatorio = []
+
+        with zipfile.ZipFile(out_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zip_out:
+            for name in zip_in.namelist():
+                data = zip_in.read(name)
+                if not name.lower().endswith(".xml"):
+                    zip_out.writestr(name, data)
+                    continue
+
+                try:
+                    parser = etree.XMLParser(remove_blank_text=False, recover=True, huge_tree=True)
+                    root = etree.fromstring(data, parser=parser)
+
+                    # Encontra todos os <prod> que tenham <cClass>
+                    prods = root.xpath("//*[local-name()='prod' and ./*[local-name()='cClass']]")
+                    alteracoes = 0
+
+                    for prod in prods:
+                        cclass_el = prod.xpath("./*[local-name()='cClass']")
+                        if not cclass_el:
+                            continue
+                        cclass_val = (cclass_el[0].text or "").strip()
+                        alvo = regras.get(cclass_val) or regras.get(norm(cclass_val))
+                        if not alvo:
+                            continue
+
+                        cfop_el = prod.xpath("./*[local-name()='CFOP']")
+                        if cfop_el:
+                            if (cfop_el[0].text or "").strip() != alvo:
+                                cfop_el[0].text = alvo
+                                alteracoes += 1
+                        else:
+                            # cria CFOP logo após cClass (mantém ordem)
+                            new_el = etree.Element("CFOP")
+                            new_el.text = alvo
+                            idx = prod.index(cclass_el[0])
+                            prod.insert(idx + 1, new_el)
+                            alteracoes += 1
+
+                    xml_bytes = etree.tostring(root, xml_declaration=True, encoding="utf-8", pretty_print=True)
+                    zip_out.writestr(name, xml_bytes)
+
+                    relatorio.append(f"{name}: {alteracoes} alteração(ões)")
+                except Exception as e:
+                    # se falhar, não perde o arquivo original
+                    zip_out.writestr(name, data)
+                    relatorio.append(f"{name}: ERRO ao processar ({str(e)})")
+
+            zip_out.writestr("relatorio_processamento.txt", "\n".join(relatorio))
+
+        out_buffer.seek(0)
         zip_path = os.path.join(TEMP_DIR, f"{session_id}_processado.zip")
         with open(zip_path, "wb") as f:
-            f.write(zip_buffer.getvalue())
+            f.write(out_buffer.getvalue())
 
         return jsonify({"success": True, "session_id": session_id, "download_url": f"/download/{session_id}"})
     except Exception as e:
@@ -381,7 +468,9 @@ def api_lote_processar():
 
 
 # =========================================================
-# API - CSV (gera CSV simples do ZIP)
+# API - CSV
+
+# (gera CSV simples do ZIP)
 # =========================================================
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
@@ -451,6 +540,394 @@ def download_file(session_id):
     zip_buffer.seek(0)
     return send_file(zip_buffer, as_attachment=True, download_name=f"processado_{session_id}.zip", mimetype="application/zip")
 
+
+
+# =========================================================
+# Resumo real (ZIP -> Estrutura para resumo_resultado.html)
+# =========================================================
+from lxml import etree
+
+def _xpath_text(node, xp: str):
+    try:
+        r = node.xpath(xp)
+        if not r:
+            return None
+        if isinstance(r[0], etree._Element):
+            return (r[0].text or "").strip() if r[0].text else None
+        return str(r[0]).strip()
+    except Exception:
+        return None
+
+def parse_nfcom_document(xml_bytes: bytes):
+    """
+    Parse NFCom (com ou sem namespace) e retorna:
+    - header (emit/dest/ide)
+    - itens (lista)
+    - totais (dict)
+    - retencoes (somatório por nota)
+    """
+    parser = etree.XMLParser(remove_blank_text=False, recover=True, huge_tree=True)
+    root = etree.fromstring(xml_bytes, parser=parser)
+
+    infs = root.xpath("//*[local-name()='infNFCom']")
+    if not infs:
+        raise ValueError("XML não parece ser NFCom (infNFCom não encontrado)")
+    inf = infs[0]
+
+    ide = inf.xpath("./*[local-name()='ide']")
+    ide = ide[0] if ide else inf
+
+    emit = inf.xpath("./*[local-name()='emit']")
+    emit = emit[0] if emit else inf
+    dest = inf.xpath("./*[local-name()='dest']")
+    dest = dest[0] if dest else inf
+
+    nNF = _xpath_text(ide, ".//*[local-name()='nNF']")
+    serie = _xpath_text(ide, ".//*[local-name()='serie']")
+    cNF = _xpath_text(ide, ".//*[local-name()='cNF']")
+    dhEmi = _xpath_text(ide, ".//*[local-name()='dhEmi']")
+    dhEmi_fmt = br_date(dhEmi or "")
+
+    emit_nome = _xpath_text(emit, ".//*[local-name()='xNome']")
+    emit_doc = _xpath_text(emit, ".//*[local-name()='CNPJ']") or _xpath_text(emit, ".//*[local-name()='CPF']")
+    dest_nome = _xpath_text(dest, ".//*[local-name()='xNome']")
+    dest_doc = _xpath_text(dest, ".//*[local-name()='CNPJ']") or _xpath_text(dest, ".//*[local-name()='CPF']")
+
+    # itens: det/prod
+    itens = []
+    dets = inf.xpath(".//*[local-name()='det']")
+    for det in dets:
+        prod = det.xpath("./*[local-name()='prod']")
+        prod = prod[0] if prod else None
+        if prod is None:
+            continue
+
+        cProd = _xpath_text(prod, "./*[local-name()='cProd']")
+        xProd = _xpath_text(prod, "./*[local-name()='xProd']")
+        cClass = _xpath_text(prod, "./*[local-name()='cClass']")
+        CFOP = _xpath_text(prod, "./*[local-name()='CFOP']")
+        unidade = _xpath_text(prod, "./*[local-name()='uMed']")
+        qtd = _xpath_text(prod, "./*[local-name()='qFaturada']")
+        v_un = _xpath_text(prod, "./*[local-name()='vItem']")
+        v_prod = _xpath_text(prod, "./*[local-name()='vProd']") or v_un
+
+        try:
+            v_prod_f = float(v_prod or 0)
+        except Exception:
+            v_prod_f = 0.0
+
+        # impostos do item (opcional)
+        imp = det.xpath("./*[local-name()='imposto']")
+        imp = imp[0] if imp else det
+
+        pis_cof = None
+        # alguns layouts usam vPIS / vCOFINS em imposto total, aqui só exibe se existir no item
+        vpis = _xpath_text(imp, ".//*[local-name()='PIS']//*[local-name()='vPIS']") or _xpath_text(imp, ".//*[local-name()='vPIS']")
+        vcof = _xpath_text(imp, ".//*[local-name()='COFINS']//*[local-name()='vCOFINS']") or _xpath_text(imp, ".//*[local-name()='vCOFINS']")
+        if vpis or vcof:
+            try:
+                pis_cof = br_money(float(vpis or 0) + float(vcof or 0))
+            except Exception:
+                pis_cof = None
+
+        bc_icms = _xpath_text(imp, ".//*[local-name()='ICMS']//*[local-name()='vBC']") or _xpath_text(imp, ".//*[local-name()='vBC']")
+        aliq_icms = _xpath_text(imp, ".//*[local-name()='ICMS']//*[local-name()='pICMS']") or _xpath_text(imp, ".//*[local-name()='pICMS']")
+        v_icms = _xpath_text(imp, ".//*[local-name()='ICMS']//*[local-name()='vICMS']") or _xpath_text(imp, ".//*[local-name()='vICMS']")
+
+        itens.append({
+            "cProd": cProd,
+            "xProd": xProd,
+            "cClass": cClass,
+            "CFOP": CFOP,
+            "unidade": unidade,
+            "qtd": qtd,
+            "v_un": v_un,
+            "v_prod": v_prod_f,
+            "v_prod_br": br_money(v_prod_f),
+            "pis_cofins": pis_cof,
+            "bc_icms": br_money(float(bc_icms)) if (bc_icms and str(bc_icms).replace(".","",1).isdigit()) else (bc_icms or ""),
+            "aliq_icms": (f"{aliq_icms}%" if aliq_icms else ""),
+            "icms": br_money(float(v_icms)) if (v_icms and str(v_icms).replace(".","",1).isdigit()) else (v_icms or ""),
+        })
+
+    # totais (da nota)
+    total_node = inf.xpath(".//*[local-name()='total']")
+    total_node = total_node[0] if total_node else inf
+
+    def fnum(x):
+        try:
+            return float(x or 0)
+        except Exception:
+            return 0.0
+
+    totais = {
+        "vNF": fnum(_xpath_text(total_node, ".//*[local-name()='vNF']")),
+        "vProd": fnum(_xpath_text(total_node, ".//*[local-name()='vProd']")),
+        "vBC": fnum(_xpath_text(total_node, ".//*[local-name()='ICMSTot']//*[local-name()='vBC']") or _xpath_text(total_node, ".//*[local-name()='vBC']")),
+        "vICMS": fnum(_xpath_text(total_node, ".//*[local-name()='ICMSTot']//*[local-name()='vICMS']") or _xpath_text(total_node, ".//*[local-name()='vICMS']")),
+        "vPIS": fnum(_xpath_text(total_node, ".//*[local-name()='vPIS']")),
+        "vCOFINS": fnum(_xpath_text(total_node, ".//*[local-name()='vCOFINS']")),
+        "vFUST": fnum(_xpath_text(total_node, ".//*[local-name()='vFUST']")),
+        "vFUNTTEL": fnum(_xpath_text(total_node, ".//*[local-name()='vFUNTTEL']")),
+        "vRetTribTot": fnum(_xpath_text(total_node, ".//*[local-name()='vRetTribTot']")),
+        "vDesc": fnum(_xpath_text(total_node, ".//*[local-name()='vDesc']")),
+        "vOutro": fnum(_xpath_text(total_node, ".//*[local-name()='vOutro']")),
+    }
+
+    # retenções por nota: somatório de det/imposto/retTrib
+    ret_pis = 0.0
+    ret_cof = 0.0
+    ret_csll = 0.0
+    ret_irrf = 0.0
+
+    for det in dets:
+        ret = det.xpath(".//*[local-name()='retTrib']")
+        if not ret:
+            continue
+        ret = ret[0]
+        ret_pis += fnum(_xpath_text(ret, ".//*[local-name()='vRetPIS']"))
+        ret_cof += fnum(_xpath_text(ret, ".//*[local-name()='vRetCofins']"))
+        ret_csll += fnum(_xpath_text(ret, ".//*[local-name()='vRetCSLL']"))
+        ret_irrf += fnum(_xpath_text(ret, ".//*[local-name()='vIRRF']"))
+
+    header = {
+        "nNF": nNF,
+        "serie": serie,
+        "cNF": cNF,
+        "dhEmi_fmt": dhEmi_fmt,
+        "emitente_nome": emit_nome,
+        "emitente_doc": emit_doc,
+        "destinatario_nome": dest_nome,
+        "destinatario_doc": dest_doc,
+    }
+
+    retencoes = {
+        "pis": ret_pis,
+        "cofins": ret_cof,
+        "csll": ret_csll,
+        "irrf": ret_irrf,
+        "total": ret_pis + ret_cof + ret_csll + ret_irrf,
+    }
+
+    return header, itens, totais, retencoes
+
+
+def build_resumo_from_zip(zip_path: str):
+    """
+    Lê um ZIP, processa NFComs e monta:
+      - linhas (por cClass) com CFOPs e notas
+      - itens_linhas (por cProd/xProd)
+      - impostos_linhas (retenções agregadas)
+    """
+    debug = {"total_xml": 0, "total_ok": 0, "total_falhas": 0, "primeiro_erro": None}
+
+    # agregações
+    cclass_map = {}   # cClass -> {desc, qtd_itens, v_total, cfops{cfop:{v_total, notas[]}}}
+    item_map = {}     # (cProd,xProd,cClass) -> { ... }
+    impostos_por_nota = []  # lista de notas com retenções
+
+    emit_nome = None
+    emit_doc = None
+
+    total_geral = 0.0
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        names = [n for n in z.namelist() if n.lower().endswith(".xml")]
+        debug["total_xml"] = len(names)
+
+        for name in names:
+            try:
+                xml_bytes = z.read(name)
+                header, itens, totais, ret = parse_nfcom_document(xml_bytes)
+
+                emit_nome = emit_nome or header.get("emitente_nome")
+                emit_doc = emit_doc or header.get("emitente_doc")
+
+                # total por nota: preferir vNF, senão somatório dos itens
+                vnota = totais.get("vNF") or 0.0
+                if not vnota:
+                    vnota = sum(float(i.get("v_prod") or 0) for i in itens)
+                total_geral += float(vnota or 0)
+
+                # retenções por nota
+                if ret.get("total", 0) > 0:
+                    impostos_por_nota.append({
+                        "nNF": header.get("nNF"),
+                        "cNF": header.get("cNF"),
+                        "emitente": header.get("emitente_nome"),
+                        "destinatario": header.get("destinatario_nome"),
+                        "emissao": header.get("dhEmi_fmt"),
+                        "pis_ret": br_money(ret["pis"]),
+                        "cofins_ret": br_money(ret["cofins"]),
+                        "csll_ret": br_money(ret["csll"]),
+                        "irrf_ret": br_money(ret["irrf"]),
+                        "total_retido": br_money(ret["total"]),
+                        "_pis": ret["pis"], "_cof": ret["cofins"], "_csll": ret["csll"], "_irrf": ret["irrf"], "_tot": ret["total"],
+                    })
+
+                # itens
+                for it in itens:
+                    cClass = (it.get("cClass") or "").strip()
+                    cfop = (it.get("CFOP") or "").strip()
+                    desc = (it.get("xProd") or "").strip()
+                    cProd = (it.get("cProd") or "").strip()
+                    v = float(it.get("v_prod") or 0)
+                    total_geral_it = v
+
+                    # por cClass
+                    ent = cclass_map.setdefault(cClass or "—", {
+                        "cClass": cClass or "—",
+                        "desc": desc or "",
+                        "qtd_itens": 0,
+                        "v_total": 0.0,
+                        "cfops": {},
+                    })
+                    ent["qtd_itens"] += 1
+                    ent["v_total"] += v
+                    if desc and not ent.get("desc"):
+                        ent["desc"] = desc
+
+                    if cfop:
+                        cf = ent["cfops"].setdefault(cfop, {"cfop": cfop, "v_total": 0.0, "notas": []})
+                        cf["v_total"] += v
+                        cf["notas"].append({
+                            "nNF": header.get("nNF"),
+                            "cNF": header.get("cNF"),
+                            "xNome": header.get("emitente_nome"),
+                            "xContato": header.get("destinatario_nome"),
+                            "dhEmi_fmt": header.get("dhEmi_fmt"),
+                            "vProd_br": br_money(v),
+                        })
+
+                    # por item
+                    key = (cProd or "—", desc or "—", cClass or "—")
+                    itent = item_map.setdefault(key, {
+                        "item": cProd or "—",
+                        "desc": desc or "—",
+                        "cClass": cClass or "—",
+                        "qtd_itens": 0,
+                        "v_total": 0.0,
+                        "notas": [],
+                    })
+                    itent["qtd_itens"] += 1
+                    itent["v_total"] += v
+                    itent["notas"].append({
+                        "nNF": header.get("nNF"),
+                        "cNF": header.get("cNF"),
+                        "xNome": header.get("emitente_nome"),
+                        "xContato": header.get("destinatario_nome"),
+                        "dhEmi_fmt": header.get("dhEmi_fmt"),
+                        "vProd_br": br_money(v),
+                    })
+
+                debug["total_ok"] += 1
+            except Exception as e:
+                debug["total_falhas"] += 1
+                if not debug["primeiro_erro"]:
+                    debug["primeiro_erro"] = f"{name}: {str(e)}"
+
+    # montar linhas cClass
+    linhas = []
+    for cClass, ent in cclass_map.items():
+        cfops_list = []
+        for cfop, cf in ent["cfops"].items():
+            cfops_list.append({
+                "cfop": cfop,
+                "v_total": cf["v_total"],
+                "v_total_br": br_money(cf["v_total"]),
+                "notas": cf["notas"],
+            })
+        # ordenar cfops por maior valor
+        cfops_list.sort(key=lambda x: x["v_total"], reverse=True)
+
+        linhas.append({
+            "cClass": ent["cClass"],
+            "desc": ent.get("desc") or "",
+            "qtd_itens": ent["qtd_itens"],
+            "v_total": ent["v_total"],
+            "v_total_br": br_money(ent["v_total"]),
+            "pct": 0.0,
+            "pct_br": "0,00%",
+            "cfops": cfops_list,
+        })
+
+    # percentuais e top 12
+    linhas.sort(key=lambda x: x["v_total"], reverse=True)
+    for l in linhas:
+        pct = (l["v_total"] / total_geral * 100.0) if total_geral else 0.0
+        l["pct"] = pct
+        l["pct_br"] = f"{pct:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    labels = [l["cClass"] for l in linhas[:12]]
+    valores = [l["v_total"] for l in linhas[:12]]
+
+    # itens_linhas
+    itens_linhas = list(item_map.values())
+    itens_linhas.sort(key=lambda x: x["v_total"], reverse=True)
+    for it in itens_linhas:
+        pct = (it["v_total"] / total_geral * 100.0) if total_geral else 0.0
+        it["v_total_br"] = br_money(it["v_total"])
+        it["pct"] = pct
+        it["pct_br"] = f"{pct:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # impostos_linhas (retenções)
+    total_ret = sum(n["_tot"] for n in impostos_por_nota) if impostos_por_nota else 0.0
+    impostos_linhas = []
+
+    def add_tax(tipo, key_field, display_field):
+        tot = sum(n[key_field] for n in impostos_por_nota)
+        if tot <= 0:
+            return
+        notas = []
+        for n in impostos_por_nota:
+            if n[key_field] <= 0:
+                continue
+            notas.append({
+                "nNF": n["nNF"],
+                "cNF": n["cNF"],
+                "emitente": n["emitente"],
+                "destinatario": n["destinatario"],
+                "emissao": n["emissao"],
+                "pis_ret": n["pis_ret"],
+                "cofins_ret": n["cofins_ret"],
+                "csll_ret": n["csll_ret"],
+                "irrf_ret": n["irrf_ret"],
+                "total_retido": n["total_retido"],
+            })
+        pct = (tot / total_ret * 100.0) if total_ret else 0.0
+        impostos_linhas.append({
+            "tipo": tipo,
+            "qtd_notas": len(notas),
+            "v_total": tot,
+            "v_total_br": br_money(tot),
+            "pct": pct,
+            "pct_br": f"{pct:,.2f}%".replace(",", "X").replace(".", ",").replace("X", "."),
+            "notas": notas,
+        })
+
+    add_tax("PIS Retido", "_pis", "pis_ret")
+    add_tax("COFINS Retido", "_cof", "cofins_ret")
+    add_tax("CSLL Retido", "_csll", "csll_ret")
+    add_tax("IRRF Retido", "_irrf", "irrf_ret")
+
+    # ordenar impostos por maior valor
+    impostos_linhas.sort(key=lambda x: x["v_total"], reverse=True)
+
+    return {
+        "emitente_nome": emit_nome or "",
+        "emitente_cnpj": emit_doc or "",
+        "total_arquivos": debug["total_ok"],
+        "total_geral": total_geral,
+        "total_geral_br": br_money(total_geral),
+        "total_impostos": total_ret,
+        "total_impostos_br": br_money(total_ret),
+        "labels": labels,
+        "valores": valores,
+        "linhas": linhas,
+        "itens_linhas": itens_linhas,
+        "impostos_linhas": impostos_linhas,
+        "debug": debug,
+    }
 
 # =========================================================
 # Dados exemplo (layout novo)
