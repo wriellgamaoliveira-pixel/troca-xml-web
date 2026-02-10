@@ -79,11 +79,12 @@ function renderResumo(DATA){
   let expandedC = new Set();
   let expandedCfop = new Set();
 
-  function cclassKey(i){ return `c:${i}`; }
-  function cfopKey(i, cfop){ return `cf:${i}:${cfop}`; }
+  // Chaves estáveis (não dependem do índice, evitam bug de clique/ordenacao)
+  function cclassKey(linha){ return `c:${linha.cClass||''}`; }
+  function cfopKey(cClass, cfop){ return `cf:${cClass||''}:${cfop||''}`; }
 
   function expandAllC(){
-    expandedC = new Set((DATA.linhas||[]).map((_,i)=>cclassKey(i)));
+    expandedC = new Set((DATA.linhas||[]).map((l)=>cclassKey(l)));
     redrawC();
   }
   function collapseAllC(){
@@ -120,7 +121,7 @@ function renderResumo(DATA){
 
     arr.forEach((linha, idx) => {
       // idx refer to filtered index; use stable key based on original? keep filtered index for toggles.
-      const key = cclassKey(idx);
+      const key = cclassKey(linha);
       const isOpen = expandedC.has(key);
 
       const btn = el("button",{class:"chev-btn", onClick:()=>{ 
@@ -136,6 +137,13 @@ function renderResumo(DATA){
         el("td",{class:"right"},[String(linha.v_total_br || moneyBR(linha.v_total))]),
         el("td",{class:"right"},[String(linha.pct_br || "")]),
       ]);
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (ev)=>{
+        // evita duplo toggle quando clicar no próprio botão
+        if(ev.target && (ev.target.closest && ev.target.closest('button'))) return;
+        if(expandedC.has(key)) expandedC.delete(key); else expandedC.add(key);
+        redrawC();
+      });
       cclassBody.appendChild(row);
 
       if(isOpen){
@@ -159,7 +167,7 @@ function renderResumo(DATA){
           ]));
           const tb = el("tbody",{},[]);
           cfops.forEach((cfo) => {
-            const cfKey = cfopKey(idx, cfo.cfop);
+            const cfKey = cfopKey(linha.cClass, cfo.cfop);
             const cfOpen = expandedCfop.has(cfKey);
             const cfBtn = el("button",{class:"chev-btn", onClick:()=>{
               if(expandedCfop.has(cfKey)) expandedCfop.delete(cfKey); else expandedCfop.add(cfKey);
@@ -240,7 +248,7 @@ function renderResumo(DATA){
   const itemsCollapse = document.getElementById("itemsCollapse");
 
   let expandedI = new Set();
-  function itemKey(i){ return `i:${i}`; }
+  function itemKey(item){ return `i:${item.item||''}:${item.cClass||''}`; }
 
   function filteredSortedItems(){
     const q = (itemsFilter?.value || "").trim().toLowerCase();
@@ -260,7 +268,7 @@ function renderResumo(DATA){
   }
 
   function expandAllItems(){
-    expandedI = new Set((DATA.itens_linhas||[]).map((_,i)=>itemKey(i)));
+    expandedI = new Set((DATA.itens_linhas||[]).map((it)=>itemKey(it)));
     redrawItems();
   }
   function collapseAllItems(){
@@ -280,14 +288,14 @@ function renderResumo(DATA){
     }
 
     arr.forEach((item, idx) => {
-      const key = itemKey(idx);
+      const key = itemKey(item);
       const open = expandedI.has(key);
       const btn = el("button",{class:"chev-btn", onClick:()=>{
         if(expandedI.has(key)) expandedI.delete(key); else expandedI.add(key);
         redrawItems();
       }},[ icon(open ? "chevron-down":"chevron-right") ]);
 
-      itemsBody.appendChild(el("tr",{},[
+      const row = el("tr",{},[
         el("td",{class:"center"},[btn]),
         el("td",{},[String(item.item||"")]),
         el("td",{},[String(item.desc||"")]),
@@ -295,7 +303,14 @@ function renderResumo(DATA){
         el("td",{class:"right"},[String(item.qtd_itens ?? "")]),
         el("td",{class:"right"},[String(item.v_total_br || moneyBR(item.v_total))]),
         el("td",{class:"right"},[String(item.pct_br || "")]),
-      ]));
+      ]);
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (ev)=>{
+        if(ev.target && (ev.target.closest && ev.target.closest('button'))) return;
+        if(expandedI.has(key)) expandedI.delete(key); else expandedI.add(key);
+        redrawItems();
+      });
+      itemsBody.appendChild(row);
 
       if(open){
         const notas = item.notas || [];
@@ -356,7 +371,7 @@ function renderResumo(DATA){
   const impCollapse = document.getElementById("impCollapse");
 
   let expandedImp = new Set();
-  function impKey(i){ return `t:${i}`; }
+  function impKey(imp){ return `t:${imp.tipo||''}`; }
 
   function filteredSortedImpostos(){
     const q = (impFilter?.value || "").trim().toLowerCase();
@@ -368,7 +383,7 @@ function renderResumo(DATA){
   }
 
   function expandAllImp(){
-    expandedImp = new Set((DATA.impostos_linhas||[]).map((_,i)=>impKey(i)));
+    expandedImp = new Set((DATA.impostos_linhas||[]).map((t)=>impKey(t)));
     redrawImp();
   }
   function collapseAllImp(){
@@ -389,20 +404,27 @@ function renderResumo(DATA){
     }
 
     arr.forEach((imp, idx) => {
-      const key = impKey(idx);
+      const key = impKey(imp);
       const open = expandedImp.has(key);
       const btn = el("button",{class:"chev-btn", onClick:()=>{
         if(expandedImp.has(key)) expandedImp.delete(key); else expandedImp.add(key);
         redrawImp();
       }},[ icon(open ? "chevron-down":"chevron-right") ]);
 
-      impBody.appendChild(el("tr",{},[
+      const row = el("tr",{},[
         el("td",{class:"center"},[btn]),
         el("td",{},[String(imp.tipo||"")]),
         el("td",{class:"right"},[String(imp.qtd_notas ?? "")]),
         el("td",{class:"right"},[String(imp.v_total_br || moneyBR(imp.v_total))]),
         el("td",{class:"right"},[String(imp.pct_br || "")]),
-      ]));
+      ]);
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (ev)=>{
+        if(ev.target && (ev.target.closest && ev.target.closest('button'))) return;
+        if(expandedImp.has(key)) expandedImp.delete(key); else expandedImp.add(key);
+        redrawImp();
+      });
+      impBody.appendChild(row);
 
       if(open){
         const notas = imp.notas || [];
