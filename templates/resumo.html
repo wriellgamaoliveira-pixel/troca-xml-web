@@ -1,143 +1,78 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resumo - Troca XML Web</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="{{ url_for('index') }}" class="nav-logo">
-                📋 Troca XML Web
-            </a>
-            <div class="nav-links">
-                <a href="{{ url_for('index') }}" class="nav-link">
-                    <i data-lucide="home" class="nav-icon"></i> Início
-                </a>
-                <a href="{{ url_for('sessao_page') }}" class="nav-link">
-                    <i data-lucide="database" class="nav-icon"></i> Sessão
-                </a>
-                <a href="{{ url_for('nota_page') }}" class="nav-link">
-                    <i data-lucide="file-text" class="nav-icon"></i> Nota Única
-                </a>
-                <a href="{{ url_for('lote_page') }}" class="nav-link">
-                    <i data-lucide="folder-archive" class="nav-icon"></i> Lote
-                </a>
-                <a href="{{ url_for('resumo_page') }}" class="nav-link active">
-                    <i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo
-                </a>
-                <a href="{{ url_for('csv_page') }}" class="nav-link">
-                    <i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV
-                </a>
-            </div>
-        </div>
-    </nav>
+{% extends "base.html" %}
+{% block title %}Resumo - Troca XML{% endblock %}
 
-    <main class="container">
-        <div class="card">
-            <h1 class="text-2xl font-bold mb-4">Resumo (por cClass)</h1>
-            <p class="text-muted mb-6">Gere um relatório consolidado com totais por cClass</p>
-            
-            <div class="upload-area">
-                <h2 class="text-lg font-semibold mb-4">Gerar Resumo</h2>
-                <p class="text-muted mb-4">Envie um arquivo .zip contendo XMLs para análise</p>
-                
-                <form id="uploadForm" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium mb-2">Arquivo ZIP</label>
-                        <input type="file" 
-                               id="fileInput" 
-                               accept=".zip" 
-                               class="input-field"
-                               required>
-                    </div>
-                    
-                    <div id="progressContainer" class="hidden">
-                        <div class="mb-2">
-                            <span class="text-sm">Processando XMLs...</span>
-                            <span id="progressPercent" class="text-sm font-medium">0%</span>
-                        </div>
-                        <div class="progress-bar">
-                            <div id="progressFill" class="progress-fill"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="flex gap-4">
-                        <button type="submit" class="btn btn-primary">
-                            <i data-lucide="upload"></i> Processar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </main>
+{% block content %}
+<h1 class="page-title">Resumo (por cClass)</h1>
+<p class="page-subtitle">Gere um relatório consolidado com totais por cClass.</p>
 
-    <script>
-        lucide.createIcons();
-        
-        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            
-            if (!file) {
-                alert('Por favor, selecione um arquivo ZIP.');
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            // Mostra barra de progresso
-            const progressContainer = document.getElementById('progressContainer');
-            const progressFill = document.getElementById('progressFill');
-            const progressPercent = document.getElementById('progressPercent');
-            
-            progressContainer.classList.remove('hidden');
-            
-            // Simula progresso
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += 10;
-                if (progress > 90) progress = 90;
-                progressFill.style.width = `${progress}%`;
-                progressPercent.textContent = `${progress}%`;
-            }, 500);
-            
-            try {
-                const response = await fetch('/api/resumo/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                clearInterval(progressInterval);
-                
-                if (response.ok) {
-                    progressFill.style.width = '100%';
-                    progressPercent.textContent = '100%';
-                    
-                    const result = await response.json();
-                    
-                    // Aguarda 1 segundo e redireciona para a página de resultado
-                    setTimeout(() => {
-                        window.location.href = '/resumo/resultado';
-                    }, 1000);
-                } else {
-                    const error = await response.json();
-                    alert(`Erro: ${error.error}`);
-                    progressContainer.classList.add('hidden');
-                }
-            } catch (error) {
-                clearInterval(progressInterval);
-                alert('Erro ao processar arquivo: ' + error.message);
-                progressContainer.classList.add('hidden');
-            }
-        });
-    </script>
-</body>
-</html>
+<div class="card">
+  <div class="card-content" style="max-width:780px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <i data-lucide="bar-chart-3"></i>
+      <b>Gerar Resumo</b>
+    </div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">Envie um arquivo .zip contendo XMLs para análise</div>
+
+    <form id="uploadForm" style="display:grid;gap:12px;">
+      <input class="input" type="file" id="fileInput" accept=".zip" required>
+
+      <div id="progressContainer" class="hidden">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="color:var(--muted);font-size:13px;">Processando XMLs...</span>
+          <span id="progressPercent" style="font-weight:800;">0%</span>
+        </div>
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+      </div>
+
+      <button class="btn" type="submit"><i data-lucide="upload"></i> Processar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.getElementById('uploadForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const file = document.getElementById('fileInput').files[0];
+    if(!file) return alert('Selecione um ZIP.');
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressPercent = document.getElementById('progressPercent');
+
+    progressContainer.classList.remove('hidden');
+
+    let p = 0;
+    const timer = setInterval(()=>{
+      p += 7;
+      if(p > 90) p = 90;
+      progressFill.style.width = p + '%';
+      progressPercent.textContent = p + '%';
+    }, 380);
+
+    try{
+      const r = await fetch('/api/resumo/upload', {method:'POST', body: fd});
+      clearInterval(timer);
+
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success){
+        progressContainer.classList.add('hidden');
+        alert((j && j.error) ? j.error : 'Erro ao processar');
+        return;
+      }
+
+      progressFill.style.width = '100%';
+      progressPercent.textContent = '100%';
+      setTimeout(()=>{ window.location.href = '/resumo/resultado'; }, 600);
+    }catch(err){
+      clearInterval(timer);
+      progressContainer.classList.add('hidden');
+      alert('Erro: ' + err.message);
+    }
+  });
+</script>
+{% endblock %}

@@ -1,35 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Sessão{% endblock %}
+{% block title %}Sessão - Troca XML{% endblock %}
 
 {% block content %}
+<h1 class="page-title">Sessão</h1>
+<p class="page-subtitle">Crie uma sessão temporária e acompanhe o status.</p>
+
 <div class="card">
-  <h1 class="text-2xl font-bold mb-4">Sessão</h1>
-  <p class="text-muted mb-6">Crie uma sessão temporária e acompanhe o status.</p>
-
-  <div class="flex gap-4 items-center mb-4">
-    <button class="btn" id="btnCriar">
-      <i data-lucide="plus"></i> Criar Sessão
-    </button>
-    <div class="text-sm">
-      <div><b>Session ID:</b> <span id="sessionId">—</span></div>
-      <div><b>Status:</b> <span id="sessionStatus">—</span></div>
-      <div><b>TTL:</b> <span id="sessionTtl">—</span></div>
-    </div>
-  </div>
-
-  <div class="card" style="background:#f9fafb;">
-    <h2 class="text-lg font-semibold mb-2">Upload (chunk) — simples</h2>
-    <p class="text-muted text-sm mb-4">Aqui é um exemplo básico. (Seu sistema já aceita <code>/api/sessao/upload-chunk</code>).</p>
-
-    <div class="space-y-4">
-      <div>
-        <label class="text-sm font-medium mb-2" style="display:block;">Arquivo (qualquer)</label>
-        <input type="file" id="fileChunk" class="input-field" />
+  <div class="card-content">
+    <div class="controls">
+      <div class="controls-left">
+        <button class="btn" id="btnCriar"><i data-lucide="plus"></i> Criar Sessão</button>
+        <button class="btn btn-outline" id="btnStatus"><i data-lucide="refresh-cw"></i> Atualizar</button>
       </div>
-
-      <button class="btn btn-outline" id="btnEnviarChunk">
-        <i data-lucide="upload"></i> Enviar 1 chunk (arquivo inteiro)
-      </button>
+      <div class="controls-right">
+        <span class="pill"><b>Session:</b>&nbsp;<span id="sid">—</span></span>
+        <span class="pill"><b>Status:</b>&nbsp;<span id="st">—</span></span>
+        <span class="pill"><b>TTL:</b>&nbsp;<span id="ttl">—</span></span>
+      </div>
     </div>
   </div>
 </div>
@@ -38,59 +25,30 @@
 
 {% block extra_js %}
 <script>
-  const sidEl = document.getElementById('sessionId');
-  const stEl = document.getElementById('sessionStatus');
-  const ttlEl = document.getElementById('sessionTtl');
+  const sidEl = document.getElementById('sid');
+  const stEl = document.getElementById('st');
+  const ttlEl = document.getElementById('ttl');
 
-  async function refreshStatus() {
+  async function refreshStatus(){
     const sid = sidEl.textContent.trim();
-    if (!sid || sid === '—') return;
+    if(!sid || sid==='—') return;
     const r = await fetch(`/api/sessao/status?session_id=${encodeURIComponent(sid)}`);
     const j = await r.json();
-    if (j.success) {
+    if(j.success){
       stEl.textContent = j.status;
       ttlEl.textContent = `${j.ttl_restante}s`;
     }
   }
 
-  document.getElementById('btnCriar').addEventListener('click', async () => {
-    const r = await fetch('/api/sessao/criar', { method: 'POST' });
+  document.getElementById('btnCriar').addEventListener('click', async ()=>{
+    const r = await fetch('/api/sessao/criar', {method:'POST'});
     const j = await r.json();
-    if (!j.success) {
-      alert(j.error || 'Erro ao criar sessão');
-      return;
-    }
+    if(!j.success){ alert(j.error || 'Erro'); return; }
     sidEl.textContent = j.session_id;
     stEl.textContent = 'ativa';
     ttlEl.textContent = `${j.ttl}s`;
-    refreshStatus();
   });
 
-  document.getElementById('btnEnviarChunk').addEventListener('click', async () => {
-    const sid = sidEl.textContent.trim();
-    if (!sid || sid === '—') {
-      alert('Crie uma sessão primeiro.');
-      return;
-    }
-    const f = document.getElementById('fileChunk').files[0];
-    if (!f) {
-      alert('Selecione um arquivo.');
-      return;
-    }
-    const fd = new FormData();
-    fd.append('session_id', sid);
-    fd.append('chunk_index', '0');
-    fd.append('total_chunks', '1');
-    fd.append('chunk', f);
-
-    const r = await fetch('/api/sessao/upload-chunk', { method: 'POST', body: fd });
-    const j = await r.json();
-    if (!j.success) {
-      alert(j.error || 'Erro no upload');
-      return;
-    }
-    alert('Chunk enviado com sucesso!');
-    refreshStatus();
-  });
+  document.getElementById('btnStatus').addEventListener('click', refreshStatus);
 </script>
 {% endblock %}

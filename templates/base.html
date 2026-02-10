@@ -3,37 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Troca XML Web{% endblock %}</title>
-
+  <title>{% block title %}Troca XML{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block extra_css %}{% endblock %}
-
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
   <nav class="navbar">
     <div class="nav-container">
-      <a href="{{ url_for('index') }}" class="nav-logo">📋 Troca XML Web</a>
-      <div class="nav-links">
-        <a href="{{ url_for('index') }}" class="nav-link {% if request.path == '/' %}active{% endif %}">
-          <i data-lucide="home" class="nav-icon"></i> Início
+      <div class="nav-left">
+        <a href="{{ url_for('index') }}" class="nav-logo">
+          <i data-lucide="file-text"></i> Troca XML
         </a>
-        <a href="{{ url_for('sessao_page') }}" class="nav-link {% if request.path.startswith('/sessao') %}active{% endif %}">
-          <i data-lucide="database" class="nav-icon"></i> Sessão
-        </a>
-        <a href="{{ url_for('nota_page') }}" class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}">
-          <i data-lucide="file-text" class="nav-icon"></i> Nota Única
-        </a>
-        <a href="{{ url_for('lote_page') }}" class="nav-link {% if request.path.startswith('/lote') %}active{% endif %}">
-          <i data-lucide="folder-archive" class="nav-icon"></i> Lote
-        </a>
-        <a href="{{ url_for('resumo_page') }}" class="nav-link {% if request.path.startswith('/resumo') %}active{% endif %}">
-          <i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo
-        </a>
-        <a href="{{ url_for('csv_page') }}" class="nav-link {% if request.path.startswith('/csv') %}active{% endif %}">
-          <i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV
-        </a>
+        <div class="nav-links">
+          <a class="nav-link {% if request.path=='/' %}active{% endif %}" href="{{ url_for('index') }}"><i data-lucide="home" class="nav-icon"></i> Início</a>
+          <a class="nav-link {% if request.path.startswith('/sessao') %}active{% endif %}" href="{{ url_for('sessao_page') }}"><i data-lucide="database" class="nav-icon"></i> Sessao</a>
+          <a class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}" href="{{ url_for('nota_page') }}"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
+          <a class="nav-link {% if request.path.startswith('/lote') %}active{% endif %}" href="{{ url_for('lote_page') }}"><i data-lucide="archive" class="nav-icon"></i> Lote</a>
+          <a class="nav-link {% if request.path.startswith('/resumo') %}active{% endif %}" href="{{ url_for('resumo_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo</a>
+          <a class="nav-link {% if request.path.startswith('/csv') %}active{% endif %}" href="{{ url_for('csv_page') }}"><i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV</a>
+        </div>
       </div>
+
+      <span class="badge"><i data-lucide="circle-dot"></i> Sem sessão</span>
     </div>
   </nav>
 

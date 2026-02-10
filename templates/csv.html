@@ -1,44 +1,38 @@
 {% extends "base.html" %}
-{% block title %}CSV{% endblock %}
+{% block title %}CSV - Troca XML{% endblock %}
 
 {% block content %}
+<h1 class="page-title">CSV</h1>
+<p class="page-subtitle">Envie um ZIP com XMLs e gere um CSV simples.</p>
+
 <div class="card">
-  <h1 class="text-2xl font-bold mb-4">CSV</h1>
-  <p class="text-muted mb-6">Envie um ZIP com XMLs e gere um CSV simples.</p>
+  <div class="card-content" style="display:grid;gap:12px;max-width:720px;">
+    <form id="csvForm" style="display:grid;gap:12px;">
+      <input class="input" type="file" id="zipCsv" name="zip_xmls" accept=".zip" required>
 
-  <form id="csvForm" class="space-y-4">
-    <div>
-      <label class="text-sm font-medium mb-2" style="display:block;">Arquivo ZIP</label>
-      <input type="file" name="zip_xmls" id="zipCsv" accept=".zip" class="input-field" required />
-    </div>
+      <input class="input" type="text" id="campos" placeholder="Campos (opcional, separados por ;). Ex: arquivo;tipo;nNF;dhEmi;emitente_nome">
 
-    <div>
-      <label class="text-sm font-medium mb-2" style="display:block;">Campos (opcional, separados por “;”)</label>
-      <input type="text" id="campos" class="input-field" placeholder="arquivo;tipo;nNF;serie;cNF;dhEmi;emitente_nome;dest_nome;total_vProd" />
-      <p class="text-sm text-muted mt-1">Se vazio, exporta um conjunto padrão.</p>
-    </div>
-
-    <button type="submit" class="btn">
-      <i data-lucide="file-down"></i> Gerar CSV
-    </button>
-  </form>
+      <button class="btn" type="submit"><i data-lucide="file-down"></i> Gerar CSV</button>
+    </form>
+    <div class="note">Se “Campos” estiver vazio, exporta um conjunto padrão.</div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-  document.getElementById('csvForm').addEventListener('submit', async (e) => {
+  document.getElementById('csvForm').addEventListener('submit', async (e)=>{
     e.preventDefault();
     const f = document.getElementById('zipCsv').files[0];
-    if (!f) return alert('Selecione um ZIP.');
+    if(!f) return alert('Selecione um ZIP.');
 
     const fd = new FormData();
     fd.append('zip_xmls', f);
     fd.append('campos', document.getElementById('campos').value || '');
 
-    const r = await fetch('/api/csv/gerar', { method: 'POST', body: fd });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
+    const r = await fetch('/api/csv/gerar', {method:'POST', body: fd});
+    if(!r.ok){
+      const j = await r.json().catch(()=>({}));
       return alert(j.error || 'Erro ao gerar CSV');
     }
 

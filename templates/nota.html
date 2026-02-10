@@ -1,25 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Nota Única{% endblock %}
+{% block title %}Nota Única - Troca XML{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h1 class="text-2xl font-bold mb-4">Nota Única</h1>
-  <p class="text-muted mb-6">Envie um XML (NFe ou NFCom) para visualizar dados básicos.</p>
+<h1 class="page-title">Nota Única</h1>
+<p class="page-subtitle">Envie um XML (NFe ou NFCom) para visualizar dados básicos.</p>
 
-  <form id="notaForm" class="space-y-4">
-    <div>
-      <label class="text-sm font-medium mb-2" style="display:block;">Arquivo XML</label>
-      <input type="file" name="xml_nota" id="xmlNota" accept=".xml" class="input-field" required />
-    </div>
-    <button type="submit" class="btn">
-      <i data-lucide="search"></i> Visualizar
-    </button>
-  </form>
+<div class="card">
+  <div class="card-content">
+    <form id="notaForm" style="display:grid;gap:12px;max-width:520px;">
+      <input class="input" type="file" id="xmlNota" name="xml_nota" accept=".xml" required />
+      <button class="btn" type="submit"><i data-lucide="search"></i> Visualizar</button>
+    </form>
+    <div class="note">Dica: o resultado abaixo é em JSON (base para construir telas mais ricas depois).</div>
+  </div>
 </div>
 
-<div class="card hidden" id="notaResult">
-  <h2 class="text-xl font-bold mb-4">Resultado</h2>
-  <pre id="notaJson" style="white-space:pre-wrap; background:#0b1220; color:#fff; padding:14px; border-radius:10px; overflow:auto;"></pre>
+<div class="card" id="notaResult" style="display:none;">
+  <div class="card-header"><h2 class="card-title">Resultado</h2></div>
+  <div class="card-content">
+    <pre id="notaJson" style="white-space:pre-wrap;background:#0b1220;color:#fff;padding:14px;border-radius:12px;overflow:auto;"></pre>
+  </div>
 </div>
 {% endblock %}
 
@@ -29,25 +29,21 @@
   const result = document.getElementById('notaResult');
   const pre = document.getElementById('notaJson');
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-
     const f = document.getElementById('xmlNota').files[0];
-    if (!f) return alert('Selecione um XML.');
+    if(!f) return alert('Selecione um XML.');
 
     const fd = new FormData();
     fd.append('xml_nota', f);
 
-    const r = await fetch('/api/nota/visualizar', { method: 'POST', body: fd });
+    const r = await fetch('/api/nota/visualizar', {method:'POST', body: fd});
     const j = await r.json();
 
-    if (!j.success) {
-      alert(j.error || 'Erro ao processar');
-      return;
-    }
+    if(!j.success){ alert(j.error || 'Erro'); return; }
 
     pre.textContent = JSON.stringify(j.data, null, 2);
-    result.classList.remove('hidden');
+    result.style.display = 'block';
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   });
 </script>

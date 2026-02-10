@@ -1,630 +1,199 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resumo - Troca XML Web</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="{{ url_for('index') }}" class="nav-logo">
-                📋 Troca XML Web
-            </a>
-            <div class="nav-links">
-                <a href="{{ url_for('index') }}" class="nav-link">
-                    <i data-lucide="home" class="nav-icon"></i> Início
-                </a>
-                <a href="{{ url_for('sessao') }}" class="nav-link">
-                    <i data-lucide="database" class="nav-icon"></i> Sessão
-                </a>
-                <a href="{{ url_for('nota') }}" class="nav-link">
-                    <i data-lucide="file-text" class="nav-icon"></i> Nota Única
-                </a>
-                <a href="{{ url_for('lote') }}" class="nav-link">
-                    <i data-lucide="folder-archive" class="nav-icon"></i> Lote
-                </a>
-                <a href="{{ url_for('resumo') }}" class="nav-link active">
-                    <i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo
-                </a>
-                <a href="{{ url_for('csv') }}" class="nav-link">
-                    <i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV
-                </a>
-            </div>
+{% extends "base.html" %}
+{% block title %}Resumo Resultado - Troca XML{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Resumo (por cClass)</h1>
+<p class="page-subtitle">Gere um relatório consolidado com totais por cClass</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      {% if data.emitente_nome %}
+      <div>
+        <p class="kpi-label">Emitente</p>
+        <p class="kpi-value" style="font-size:16px;">{{ data.emitente_nome }}</p>
+        {% if data.emitente_cnpj %}<p class="kpi-sub">{{ data.emitente_cnpj }}</p>{% endif %}
+      </div>
+      {% endif %}
+      <div>
+        <p class="kpi-label">Total de Arquivos</p>
+        <p class="kpi-value">{{ data.total_arquivos }}</p>
+      </div>
+      <div style="grid-column: span 2;">
+        <p class="kpi-label">Valor Total</p>
+        <p class="kpi-value primary">{{ data.total_geral_br }}</p>
+      </div>
+    </div>
+
+    {% if data.debug %}
+    <div class="note">
+      <b>Diagnóstico:</b><br>
+      XMLs no ZIP: {{ data.debug.total_xml }} | OK: {{ data.debug.total_ok }} | Falhas: {{ data.debug.total_falhas }}
+      {% if data.debug.primeiro_erro %}
+      <div style="margin-top:6px;color:#b91c1c;">{{ data.debug.primeiro_erro }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Gráfico (Top 12 cClass)</h2></div>
+  <div class="card-content">
+    <div class="chart-wrap">
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;">
+        <h2 class="card-title" style="margin:0;">Tabela por cClass</h2>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="cclassExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="cclassCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="cclassFilter" placeholder="Filtrar por cClass ou descrição...">
         </div>
-    </nav>
+        <select class="select" id="cclassSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+          <option value="asc-valor">Menor valor primeiro</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
-    <main class="container">
-        <!-- Botão Voltar -->
-        <div class="mb-6">
-            <a href="{{ url_for('resumo') }}" class="btn btn-outline">
-                <i data-lucide="arrow-left"></i> Voltar para upload
-            </a>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>cClass</th>
+            <th>Descrição</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="cclassBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <h2 class="card-title" style="margin:0;">Tabela de Itens (Todos)</h2>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="itemsExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="itemsCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="itemsFilter" placeholder="Filtrar por código, descrição ou cClass...">
         </div>
+        <select class="select" id="itemsSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+          <option value="asc-valor">Menor valor primeiro</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
-        <!-- Resumo Geral -->
-        <div class="card">
-            <h1 class="text-2xl font-bold mb-4">Resumo (por cClass)</h1>
-            
-            <div class="resumo-geral">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div>
-                        <h3 class="text-lg font-semibold mb-2">Emitente</h3>
-                        <p class="font-medium">{{ data.emitente_nome }}</p>
-                        <p class="text-sm text-muted">{{ data.emitente_cnpj }}</p>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <p class="text-sm text-muted">Total de Arquivos</p>
-                            <p class="text-2xl font-bold">{{ data.total_arquivos }}</p>
-                        </div>
-                        <div>
-                            <p class="text-sm text-muted">Valor Total</p>
-                            <p class="text-2xl font-bold text-primary">{{ data.total_geral_br }}</p>
-                        </div>
-                    </div>
-                </div>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Item (cProd)</th>
+            <th>Descrição (xProd)</th>
+            <th>cClass</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-                {% if data.debug %}
-                <div class="diagnostico">
-                    <p class="font-medium">Diagnóstico:</p>
-                    <p class="text-muted">
-                        XMLs no ZIP: {{ data.debug.total_xml }} | OK: {{ data.debug.total_ok }} | Falhas: {{ data.debug.total_falhas }}
-                    </p>
-                </div>
-                {% endif %}
-            </div>
+{% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <div>
+        <h2 class="card-title" style="margin:0;">Tabela de Impostos Retidos (vRetTribTot)</h2>
+        <div style="margin-top:6px;color:var(--muted);font-size:13px;">Total retido: {{ data.total_impostos_br }}</div>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="impExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="impFilter" placeholder="Filtrar por tipo de imposto...">
         </div>
+        <select class="select" id="impSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
-        <!-- Gráfico (Top 12 cClass) -->
-        <div class="card">
-            <h2 class="text-xl font-bold mb-4">Gráfico (Top 12 cClass)</h2>
-            <div class="chart-container">
-                <canvas id="cclassChart"></canvas>
-            </div>
-        </div>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Tipo de Imposto</th>
+            <th class="right">Qtd Notas</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="impBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
-        <!-- Tabela por cClass -->
-        <div class="card">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold">Tabela por cClass</h2>
-                <div class="flex gap-2">
-                    <button class="btn btn-outline btn-sm" onclick="expandAll('cclass')">
-                        <i data-lucide="chevrons-down"></i> Expandir Todos
-                    </button>
-                    <button class="btn btn-outline btn-sm" onclick="collapseAll('cclass')">
-                        <i data-lucide="chevrons-up"></i> Recolher Todos
-                    </button>
-                </div>
-            </div>
+<script>
+  window.__RESUMO_DATA__ = {{ data|tojson }};
+</script>
+{% endblock %}
 
-            <div class="mb-4">
-                <div class="flex gap-4">
-                    <div class="flex-1 relative">
-                        <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted"></i>
-                        <input type="text" 
-                               id="cclassFilter" 
-                               placeholder="Filtrar por cClass ou descrição..." 
-                               class="input-field pl-10"
-                               onkeyup="filterTable('cclass')">
-                    </div>
-                    <select id="cclassSort" class="input-field" onchange="sortTable('cclass')">
-                        <option value="desc">Maior valor primeiro</option>
-                        <option value="asc-nome">A-Z (alfabético)</option>
-                        <option value="asc-valor">Menor valor primeiro</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th class="w-10"></th>
-                            <th>cClass</th>
-                            <th>Descrição</th>
-                            <th class="text-right">Qtd Itens</th>
-                            <th class="text-right">Valor Total</th>
-                            <th class="text-right">%</th>
-                        </tr>
-                    </thead>
-                    <tbody id="cclassTableBody">
-                        {% for linha in data.linhas %}
-                        <tr class="cclass-row cursor-pointer" onclick="toggleCclass({{ loop.index0 }})">
-                            <td>
-                                <i data-lucide="chevron-right" id="chevron-{{ loop.index0 }}" class="chevron"></i>
-                            </td>
-                            <td class="font-mono text-sm">{{ linha.cClass }}</td>
-                            <td>{{ linha.desc or '-' }}</td>
-                            <td class="text-right">{{ linha.qtd_itens }}</td>
-                            <td class="text-right font-medium">{{ linha.v_total_br }}</td>
-                            <td class="text-right">{{ linha.pct_br }}</td>
-                        </tr>
-                        <tr id="cclass-detail-{{ loop.index0 }}" class="hidden">
-                            <td colspan="6" class="bg-gray-50 p-4">
-                                <div class="space-y-3">
-                                    <p class="font-semibold">CFOPs desta cClass</p>
-                                    {% if linha.cfops and linha.cfops|length > 0 %}
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th class="w-10"></th>
-                                                <th>CFOP</th>
-                                                <th class="text-right">Valor</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for cfop in linha.cfops %}
-                                            <tr class="cfop-row cursor-pointer" onclick="toggleCfop('{{ loop.parentloop.index0 }}-{{ loop.index0 }}')">
-                                                <td>
-                                                    <i data-lucide="chevron-right" id="cfop-chevron-{{ loop.parentloop.index0 }}-{{ loop.index0 }}" class="chevron"></i>
-                                                </td>
-                                                <td class="font-mono text-sm">{{ cfop.cfop }}</td>
-                                                <td class="text-right font-medium">{{ cfop.v_total_br }}</td>
-                                            </tr>
-                                            <tr id="cfop-detail-{{ loop.parentloop.index0 }}-{{ loop.index0 }}" class="hidden">
-                                                <td colspan="3" class="bg-gray-100 p-4">
-                                                    <p class="font-semibold mb-2">Notas deste CFOP</p>
-                                                    {% if cfop.notas and cfop.notas|length > 0 %}
-                                                    <table class="data-table">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>nNF</th>
-                                                                <th>cNF</th>
-                                                                <th>Emitente</th>
-                                                                <th>Destinatário</th>
-                                                                <th>Emissão</th>
-                                                                <th class="text-right">Valor</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {% for nota in cfop.notas %}
-                                                            <tr>
-                                                                <td>{{ nota.nNF }}</td>
-                                                                <td>{{ nota.cNF }}</td>
-                                                                <td>{{ nota.xNome }}</td>
-                                                                <td>{{ nota.xContato or '-' }}</td>
-                                                                <td>{{ nota.dhEmi_fmt }}</td>
-                                                                <td class="text-right">{{ nota.vProd_br }}</td>
-                                                            </tr>
-                                                            {% endfor %}
-                                                        </tbody>
-                                                    </table>
-                                                    {% else %}
-                                                    <p class="text-sm text-muted">Nenhuma nota encontrada.</p>
-                                                    {% endif %}
-                                                </td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                    {% else %}
-                                    <p class="text-sm text-muted">Nenhum CFOP relacionado encontrado.</p>
-                                    {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Tabela de Itens (Todos) -->
-        <div class="card">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-bold">Tabela de Itens (Todos)</h2>
-                <div class="flex gap-2">
-                    <button class="btn btn-outline btn-sm" onclick="expandAll('items')">
-                        <i data-lucide="chevrons-down"></i> Expandir Todos
-                    </button>
-                    <button class="btn btn-outline btn-sm" onclick="collapseAll('items')">
-                        <i data-lucide="chevrons-up"></i> Recolher Todos
-                    </button>
-                </div>
-            </div>
-
-            <div class="mb-4">
-                <div class="flex gap-4">
-                    <div class="flex-1 relative">
-                        <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted"></i>
-                        <input type="text" 
-                               id="itemsFilter" 
-                               placeholder="Filtrar por código, descrição ou cClass..." 
-                               class="input-field pl-10"
-                               onkeyup="filterTable('items')">
-                    </div>
-                    <select id="itemsSort" class="input-field" onchange="sortTable('items')">
-                        <option value="desc">Maior valor primeiro</option>
-                        <option value="asc-nome">A-Z (alfabético)</option>
-                        <option value="asc-valor">Menor valor primeiro</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th class="w-10"></th>
-                            <th>Item (cProd)</th>
-                            <th>Descrição (xProd)</th>
-                            <th>cClass</th>
-                            <th class="text-right">Qtd Itens</th>
-                            <th class="text-right">Valor Total</th>
-                            <th class="text-right">%</th>
-                        </tr>
-                    </thead>
-                    <tbody id="itemsTableBody">
-                        {% for item in data.itens_linhas %}
-                        <tr class="item-row cursor-pointer" onclick="toggleItem({{ loop.index0 }})">
-                            <td>
-                                <i data-lucide="chevron-right" id="item-chevron-{{ loop.index0 }}" class="chevron"></i>
-                            </td>
-                            <td class="font-mono text-sm">{{ item.item }}</td>
-                            <td>{{ item.desc or '-' }}</td>
-                            <td class="font-mono text-sm">{{ item.cClass }}</td>
-                            <td class="text-right">{{ item.qtd_itens }}</td>
-                            <td class="text-right font-medium">{{ item.v_total_br }}</td>
-                            <td class="text-right">{{ item.pct_br }}</td>
-                        </tr>
-                        <tr id="item-detail-{{ loop.index0 }}" class="hidden">
-                            <td colspan="7" class="bg-gray-50 p-4">
-                                <div class="space-y-3">
-                                    <p class="font-semibold">Notas fiscais relacionadas</p>
-                                    {% if item.notas and item.notas|length > 0 %}
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>nNF</th>
-                                                <th>Contrato (cNF)</th>
-                                                <th>Emitente</th>
-                                                <th>Destinatário</th>
-                                                <th>Emissão</th>
-                                                <th class="text-right">Valor do item</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for nota in item.notas %}
-                                            <tr>
-                                                <td>{{ nota.nNF }}</td>
-                                                <td>{{ nota.cNF }}</td>
-                                                <td>{{ nota.xNome }}</td>
-                                                <td>{{ nota.xContato or '-' }}</td>
-                                                <td>{{ nota.dhEmi_fmt }}</td>
-                                                <td class="text-right">{{ nota.vProd_br }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                    {% else %}
-                                    <p class="text-sm text-muted">Nenhuma nota encontrada para este item.</p>
-                                    {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Tabela de Impostos Retidos -->
-        {% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
-        <div class="card">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-xl font-bold">Tabela de Impostos Retidos (vRetTribTot)</h2>
-                    <p class="text-sm text-muted">Total retido: {{ data.total_impostos_br }}</p>
-                </div>
-                <div class="flex gap-2">
-                    <button class="btn btn-outline btn-sm" onclick="expandAll('impostos')">
-                        <i data-lucide="chevrons-down"></i> Expandir Todos
-                    </button>
-                    <button class="btn btn-outline btn-sm" onclick="collapseAll('impostos')">
-                        <i data-lucide="chevrons-up"></i> Recolher Todos
-                    </button>
-                </div>
-            </div>
-
-            <div class="mb-4">
-                <div class="flex gap-4">
-                    <div class="flex-1 relative">
-                        <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted"></i>
-                        <input type="text" 
-                               id="impostosFilter" 
-                               placeholder="Filtrar por tipo de imposto..." 
-                               class="input-field pl-10"
-                               onkeyup="filterTable('impostos')">
-                    </div>
-                    <select id="impostosSort" class="input-field" onchange="sortTable('impostos')">
-                        <option value="desc">Maior valor primeiro</option>
-                        <option value="asc-nome">A-Z (alfabético)</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th class="w-10"></th>
-                            <th>Tipo de Imposto</th>
-                            <th class="text-right">Qtd Notas</th>
-                            <th class="text-right">Valor Total</th>
-                            <th class="text-right">%</th>
-                        </tr>
-                    </thead>
-                    <tbody id="impostosTableBody">
-                        {% for imposto in data.impostos_linhas %}
-                        <tr class="imposto-row cursor-pointer" onclick="toggleImposto({{ loop.index0 }})">
-                            <td>
-                                <i data-lucide="chevron-right" id="imposto-chevron-{{ loop.index0 }}" class="chevron"></i>
-                            </td>
-                            <td>{{ imposto.tipo }}</td>
-                            <td class="text-right">{{ imposto.qtd_notas }}</td>
-                            <td class="text-right font-medium">{{ imposto.v_total_br }}</td>
-                            <td class="text-right">{{ imposto.pct_br }}</td>
-                        </tr>
-                        <tr id="imposto-detail-{{ loop.index0 }}" class="hidden">
-                            <td colspan="5" class="bg-gray-50 p-4">
-                                <div class="space-y-3">
-                                    <p class="font-semibold">Notas fiscais relacionadas</p>
-                                    {% if imposto.notas and imposto.notas|length > 0 %}
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>nNF</th>
-                                                <th>Contrato (cNF)</th>
-                                                <th>Destinatário</th>
-                                                <th>Emissão</th>
-                                                <th class="text-right">PIS Ret.</th>
-                                                <th class="text-right">COFINS Ret.</th>
-                                                <th class="text-right">CSLL Ret.</th>
-                                                <th class="text-right">IRRF Ret.</th>
-                                                <th class="text-right">Total Retido</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for nota in imposto.notas %}
-                                            <tr>
-                                                <td>{{ nota.nNF }}</td>
-                                                <td>{{ nota.cNF }}</td>
-                                                <td>{{ nota.xContato or '-' }}</td>
-                                                <td>{{ nota.dhEmi_fmt }}</td>
-                                                <td class="text-right">R$ {{ "%.2f"|format(nota.pis_ret|default(0)) }}</td>
-                                                <td class="text-right">R$ {{ "%.2f"|format(nota.cofins_ret|default(0)) }}</td>
-                                                <td class="text-right">R$ {{ "%.2f"|format(nota.csll_ret|default(0)) }}</td>
-                                                <td class="text-right">R$ {{ "%.2f"|format(nota.irrf_ret|default(0)) }}</td>
-                                                <td class="text-right font-medium">R$ {{ "%.2f"|format(nota.total_retido|default(0)) }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                    {% else %}
-                                    <p class="text-sm text-muted">Nenhuma nota encontrada.</p>
-                                    {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% endif %}
-    </main>
-
-    <script>
-        // Inicializa ícones Lucide
-        lucide.createIcons();
-
-        // Dados para o gráfico
-        const chartData = {
-            labels: {{ data.labels|tojson }},
-            datasets: [{
-                data: {{ data.valores|tojson }},
-                backgroundColor: [
-                    '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d',
-                    '#ffc658', '#ff7c43', '#665191', '#a05195', '#d45087', '#f95d6a'
-                ],
-                borderWidth: 1
-            }]
-        };
-
-        // Cria gráfico de pizza
-        const ctx = document.getElementById('cclassChart').getContext('2d');
-        const cclassChart = new Chart(ctx, {
-            type: 'pie',
-            data: chartData,
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const label = context.label || '';
-                                const value = context.raw || 0;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = Math.round((value / total) * 100);
-                                return `${label}: R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${percentage}%)`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        // Estado dos elementos expandidos
-        const expandedState = {
-            cclass: new Set(),
-            cfops: new Set(),
-            items: new Set(),
-            impostos: new Set()
-        };
-
-        // Funções para expandir/recolher
-        function toggleCclass(index) {
-            const detailRow = document.getElementById(`cclass-detail-${index}`);
-            const chevron = document.getElementById(`chevron-${index}`);
-            
-            if (detailRow.classList.contains('hidden')) {
-                detailRow.classList.remove('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-down');
-                expandedState.cclass.add(index);
-            } else {
-                detailRow.classList.add('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-right');
-                expandedState.cclass.delete(index);
-                
-                // Recolhe todos os CFOPs desta cClass
-                const cfopDetails = detailRow.querySelectorAll('[id^="cfop-detail-"]');
-                cfopDetails.forEach(detail => detail.classList.add('hidden'));
-                
-                const cfopChevrons = detailRow.querySelectorAll('[id^="cfop-chevron-"]');
-                cfopChevrons.forEach(chevron => {
-                    chevron.setAttribute('data-lucide', 'chevron-right');
-                });
-            }
-            lucide.createIcons();
-        }
-
-        function toggleCfop(key) {
-            const detailRow = document.getElementById(`cfop-detail-${key}`);
-            const chevron = document.getElementById(`cfop-chevron-${key}`);
-            
-            if (detailRow.classList.contains('hidden')) {
-                detailRow.classList.remove('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-down');
-                expandedState.cfops.add(key);
-            } else {
-                detailRow.classList.add('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-right');
-                expandedState.cfops.delete(key);
-            }
-            lucide.createIcons();
-        }
-
-        function toggleItem(index) {
-            const detailRow = document.getElementById(`item-detail-${index}`);
-            const chevron = document.getElementById(`item-chevron-${index}`);
-            
-            if (detailRow.classList.contains('hidden')) {
-                detailRow.classList.remove('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-down');
-                expandedState.items.add(index);
-            } else {
-                detailRow.classList.add('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-right');
-                expandedState.items.delete(index);
-            }
-            lucide.createIcons();
-        }
-
-        function toggleImposto(index) {
-            const detailRow = document.getElementById(`imposto-detail-${index}`);
-            const chevron = document.getElementById(`imposto-chevron-${index}`);
-            
-            if (detailRow.classList.contains('hidden')) {
-                detailRow.classList.remove('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-down');
-                expandedState.impostos.add(index);
-            } else {
-                detailRow.classList.add('hidden');
-                chevron.setAttribute('data-lucide', 'chevron-right');
-                expandedState.impostos.delete(index);
-            }
-            lucide.createIcons();
-        }
-
-        // Funções para expandir/recolher todos
-        function expandAll(type) {
-            if (type === 'cclass') {
-                const rows = document.querySelectorAll('.cclass-row');
-                rows.forEach((row, index) => {
-                    if (!expandedState.cclass.has(index)) {
-                        toggleCclass(index);
-                    }
-                });
-            } else if (type === 'items') {
-                const rows = document.querySelectorAll('.item-row');
-                rows.forEach((row, index) => {
-                    if (!expandedState.items.has(index)) {
-                        toggleItem(index);
-                    }
-                });
-            } else if (type === 'impostos') {
-                const rows = document.querySelectorAll('.imposto-row');
-                rows.forEach((row, index) => {
-                    if (!expandedState.impostos.has(index)) {
-                        toggleImposto(index);
-                    }
-                });
-            }
-        }
-
-        function collapseAll(type) {
-            if (type === 'cclass') {
-                expandedState.cclass.forEach(index => {
-                    toggleCclass(index);
-                });
-                expandedState.cclass.clear();
-            } else if (type === 'items') {
-                expandedState.items.forEach(index => {
-                    toggleItem(index);
-                });
-                expandedState.items.clear();
-            } else if (type === 'impostos') {
-                expandedState.impostos.forEach(index => {
-                    toggleImposto(index);
-                });
-                expandedState.impostos.clear();
-            }
-        }
-
-        // Funções de filtro
-        function filterTable(type) {
-            const filterInput = document.getElementById(`${type}Filter`).value.toLowerCase();
-            const rows = document.querySelectorAll(`.${type}-row`);
-            
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                if (text.includes(filterInput)) {
-                    row.style.display = '';
-                    // Mostra a linha de detalhe se estiver expandida
-                    const index = Array.from(rows).indexOf(row);
-                    const detailRow = document.getElementById(`${type}-detail-${index}`);
-                    if (detailRow && !detailRow.classList.contains('hidden')) {
-                        detailRow.style.display = '';
-                    }
-                } else {
-                    row.style.display = 'none';
-                    // Esconde a linha de detalhe
-                    const index = Array.from(rows).indexOf(row);
-                    const detailRow = document.getElementById(`${type}-detail-${index}`);
-                    if (detailRow) {
-                        detailRow.style.display = 'none';
-                    }
-                }
-            });
-        }
-
-        // Funções de ordenação (simplificadas)
-        function sortTable(type) {
-            const select = document.getElementById(`${type}Sort`);
-            const sortValue = select.value;
-            
-            // Em uma implementação real, você faria uma requisição ao servidor
-            // ou ordenaria os dados no cliente
-            console.log(`Ordenar ${type} por: ${sortValue}`);
-        }
-    </script>
-</body>
-</html>
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/resumo.js') }}"></script>
+{% endblock %}

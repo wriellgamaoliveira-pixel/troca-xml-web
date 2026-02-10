@@ -1,71 +1,55 @@
 {% extends "base.html" %}
-{% block title %}Lote{% endblock %}
+{% block title %}Lote - Troca XML{% endblock %}
 
 {% block content %}
+<h1 class="page-title">Lote</h1>
+<p class="page-subtitle">Envie um ZIP com XMLs, aplique regras e baixe o ZIP processado.</p>
+
 <div class="card">
-  <h1 class="text-2xl font-bold mb-4">Lote (ZIP → ZIP)</h1>
-  <p class="text-muted mb-6">Envie um ZIP com XMLs e regras (cClass;CFOP) para gerar um ZIP processado.</p>
+  <div class="card-content">
+    <form id="loteForm" style="display:grid;gap:12px;max-width:720px;">
+      <input class="input" type="file" id="zipLote" name="zip_xmls" accept=".zip" required>
 
-  <form id="loteForm" class="space-y-4">
-    <div>
-      <label class="text-sm font-medium mb-2" style="display:block;">Arquivo ZIP</label>
-      <input type="file" name="zip_xmls" id="zipLote" accept=".zip" class="input-field" required />
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <label class="pill"><input type="checkbox" id="removerDesconto">&nbsp;Remover desconto</label>
+        <label class="pill"><input type="checkbox" id="removerOutros">&nbsp;Remover outros</label>
+      </div>
+
+      <textarea class="input" id="regrasTexto" rows="6" placeholder="Regras (uma por linha): cClass;CFOP"></textarea>
+
+      <button class="btn" type="submit"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+
+    <div id="loteOut" class="note" style="display:none;">
+      <a class="btn btn-outline" id="btnDownload" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
     </div>
-
-    <div class="grid" style="grid-template-columns: repeat(2, minmax(0,1fr));">
-      <label class="text-sm">
-        <input type="checkbox" id="removerDesconto"> Remover desconto
-      </label>
-      <label class="text-sm">
-        <input type="checkbox" id="removerOutros"> Remover outros
-      </label>
-    </div>
-
-    <div>
-      <label class="text-sm font-medium mb-2" style="display:block;">Regras (uma por linha): <code>cClass;CFOP</code></label>
-      <textarea id="regrasTexto" class="input-field" rows="6" placeholder="600601;5307&#10;400401;5307"></textarea>
-    </div>
-
-    <button type="submit" class="btn">
-      <i data-lucide="wand-2"></i> Processar
-    </button>
-  </form>
-</div>
-
-<div class="card hidden" id="loteResult">
-  <h2 class="text-xl font-bold mb-4">Download</h2>
-  <a class="btn btn-outline" id="btnDownload" href="#">
-    <i data-lucide="download"></i> Baixar ZIP processado
-  </a>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
   const form = document.getElementById('loteForm');
-  const result = document.getElementById('loteResult');
+  const out = document.getElementById('loteOut');
   const btn = document.getElementById('btnDownload');
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const f = document.getElementById('zipLote').files[0];
-    if (!f) return alert('Selecione um ZIP.');
+    if(!f) return alert('Selecione um ZIP.');
 
     const fd = new FormData();
     fd.append('zip_xmls', f);
-    fd.append('remover_desconto', document.getElementById('removerDesconto').checked ? 'true' : 'false');
-    fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true' : 'false');
+    fd.append('remover_desconto', document.getElementById('removerDesconto').checked ? 'true':'false');
+    fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true':'false');
     fd.append('regras_cclass_cfop', document.getElementById('regrasTexto').value || '');
 
-    const r = await fetch('/api/lote/processar', { method: 'POST', body: fd });
+    const r = await fetch('/api/lote/processar', {method:'POST', body: fd});
     const j = await r.json();
-    if (!j.success) {
-      alert(j.error || 'Erro ao processar');
-      return;
-    }
+    if(!j.success){ alert(j.error || 'Erro'); return; }
 
     btn.href = j.download_url;
-    result.classList.remove('hidden');
+    out.style.display = 'block';
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   });
 </script>
