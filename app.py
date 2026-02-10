@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_file, session
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 import os
 import uuid
 import json
@@ -8,47 +8,45 @@ import io
 import xml.etree.ElementTree as ET
 import pandas as pd
 from collections import defaultdict
+import tempfile
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-12345')
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-troca-xml-2024')
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB
 
-# Diretórios temporários
+# Configurações
 TEMP_DIR = 'temp'
-SESSOES_DIR = 'sessoes'
-
+UPLOADS_DIR = 'uploads'
 os.makedirs(TEMP_DIR, exist_ok=True)
-os.makedirs(SESSOES_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-class MemoryStorage:
+# Simulação de Redis (pode ser substituído por Redis real)
+class FakeRedis:
     def __init__(self):
         self.data = {}
-        self.chunks = {}
+        self.expirations = {}
     
     def setex(self, key, ttl, value):
-        self.data[key] = {
-            'value': value,
-            'expires': datetime.now().timestamp() + ttl
-        }
+        self.data[key] = value
+        self.expirations[key] = datetime.now().timestamp() + ttl
     
     def get(self, key):
-        if key in self.data:
-            item = self.data[key]
-            if datetime.now().timestamp() < item['expires']:
-                return item['value']
-            else:
-                del self.data[key]
+        if key in self.data and datetime.now().timestamp() < self.expirations.get(key, 0):
+            return self.data[key]
+        elif key in self.data:
+            del self.data[key]
+            del self.expirations[key]
         return None
     
     def ttl(self, key):
-        if key in self.data:
-            item = self.data[key]
-            remaining = item['expires'] - datetime.now().timestamp()
+        if key in self.expirations:
+            remaining = self.expirations[key] - datetime.now().timestamp()
             return max(0, int(remaining))
         return 0
 
-storage = MemoryStorage()
+redis_store = FakeRedis()
 
+# Rotas principais
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -67,72 +65,180 @@ def lote():
 
 @app.route('/resumo')
 def resumo():
-    """Página de resumo - mostra formulário de upload"""
+    """Página de upload para resumo"""
     return render_template('resumo.html')
 
 @app.route('/resumo/resultado')
 def resumo_resultado():
-    """Página de resultado do resumo (após processamento)"""
-    # Em produção, esses dados viriam do banco/Redis
-    dados_resumo = gerar_dados_exemplo()
-    return render_template('resumo_resultado.html', data=dados_resumo)
+    """Página de resultados do resumo"""
+    # Em produção, pegaria dados da sessão ou Redis
+    dados = gerar_dados_exemplo()
+    return render_template('resumo_resultado.html', data=dados)
 
 @app.route('/csv')
 def csv():
     return render_template('csv.html')
 
-# API Routes
+# API Endpoints
 @app.route('/api/resumo/upload', methods=['POST'])
-def upload_resumo():
-    """Processa upload para resumo"""
+def api_resumo_upload():
+    """API para upload de arquivo ZIP para resumo"""
     try:
         if 'file' not in request.files:
-            return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+            return jsonify({'success': False, 'error': 'Nenhum arquivo enviado'}), 400
         
         file = request.files['file']
         if file.filename == '':
-            return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+            return jsonify({'success': False, 'error': 'Nome de arquivo vazio'}), 400
+        
+        if not file.filename.lower().endswith('.zip'):
+            return jsonify({'success': False, 'error': 'Apenas arquivos ZIP são aceitos'}), 400
         
         # Salva arquivo temporariamente
         session_id = str(uuid.uuid4())
-        file_path = os.path.join(TEMP_DIR, f'{session_id}.zip')
-        file.save(file_path)
+        zip_path = os.path.join(UPLOADS_DIR, f'{session_id}.zip')
+        file.save(zip_path)
         
-        # Simula processamento
-        dados = processar_arquivo_resumo(file_path)
+        # Processa o arquivo (simulação)
+        processar_resultados = processar_zip_resumo(zip_path)
+        
+        # Salva resultados na sessão
+        session['resumo_session_id'] = session_id
+        session['resumo_data'] = processar_resultados
         
         return jsonify({
             'success': True,
             'session_id': session_id,
-            'data': dados
+            'redirect': url_for('resumo_resultado')
         })
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/resumo/dados')
-def get_dados_resumo():
-    """Retorna dados para o resumo"""
+def api_resumo_dados():
+    """API para obter dados do resumo"""
     session_id = request.args.get('session_id')
     
-    if not session_id:
-        # Retorna dados de exemplo
+    if session_id and session_id == session.get('resumo_session_id'):
+        dados = session.get('resumo_data', gerar_dados_exemplo())
+    else:
         dados = gerar_dados_exemplo()
-        return jsonify(dados)
     
-    # Aqui você recuperaria dados reais do armazenamento
-    dados = gerar_dados_exemplo()
     return jsonify(dados)
 
-def processar_arquivo_resumo(zip_path):
-    """Processa arquivo ZIP e retorna dados estruturados"""
-    # Esta é uma implementação simplificada
-    # Em produção, você processaria os XMLs reais
+@app.route('/api/sessao/criar', methods=['POST'])
+def api_sessao_criar():
+    """Cria nova sessão"""
+    session_id = str(uuid.uuid4())
+    session['current_session'] = session_id
     
+    sessao_data = {
+        'id': session_id,
+        'criado_em': datetime.now().isoformat(),
+        'status': 'ativa',
+        'arquivos': []
+    }
+    
+    redis_store.setex(f'session:{session_id}', 14400, json.dumps(sessao_data))
+    
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'ttl': 14400
+    })
+
+@app.route('/api/sessao/upload-chunk', methods=['POST'])
+def api_sessao_upload_chunk():
+    """Upload de chunk para sessão"""
+    try:
+        if 'chunk' not in request.files:
+            return jsonify({'success': False, 'error': 'Nenhum chunk enviado'}), 400
+        
+        session_id = request.form.get('session_id')
+        chunk_index = int(request.form.get('chunk_index', 0))
+        total_chunks = int(request.form.get('total_chunks', 1))
+        
+        chunk = request.files['chunk']
+        chunk_data = chunk.read()
+        
+        # Salva chunk
+        chunk_key = f'chunk:{session_id}:{chunk_index}'
+        redis_store.setex(chunk_key, 14400, chunk_data.hex())
+        
+        return jsonify({
+            'success': True,
+            'chunk': chunk_index,
+            'total': total_chunks
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/lote/processar', methods=['POST'])
+def api_lote_processar():
+    """Processa lote com regras"""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id', str(uuid.uuid4()))
+        regras = data.get('regras', {})
+        
+        # Cria arquivo ZIP de exemplo processado
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+            zipf.writestr('processado.txt', f'XMLs processados com regras: {json.dumps(regras)}')
+            zipf.writestr('relatorio.txt', 'Relatório de processamento: 100 arquivos processados, 0 erros')
+        
+        zip_buffer.seek(0)
+        
+        # Salva arquivo
+        zip_path = os.path.join(TEMP_DIR, f'{session_id}_processado.zip')
+        with open(zip_path, 'wb') as f:
+            f.write(zip_buffer.getvalue())
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'arquivos_processados': 100,
+            'download_url': f'/download/{session_id}'
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/download/<session_id>')
+def download_file(session_id):
+    """Download de arquivo processado"""
+    zip_path = os.path.join(TEMP_DIR, f'{session_id}_processado.zip')
+    
+    if os.path.exists(zip_path):
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=f'processado_{session_id}.zip'
+        )
+    
+    # Cria arquivo de exemplo se não existir
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+        zipf.writestr('exemplo.txt', 'Arquivo processado pelo Troca XML Web')
+    
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=f'processado_{session_id}.zip',
+        mimetype='application/zip'
+    )
+
+# Funções auxiliares
+def processar_zip_resumo(zip_path):
+    """Processa arquivo ZIP para resumo (simulação)"""
+    # Em produção, processaria os XMLs reais
     return gerar_dados_exemplo()
 
 def gerar_dados_exemplo():
-    """Gera dados de exemplo conforme as imagens fornecidas"""
+    """Gera dados de exemplo para demonstração"""
     return {
         'emitente_nome': 'NOVA TELECOM LTDA',
         'emitente_cnpj': '01.555.241/0001-20',
@@ -142,11 +248,11 @@ def gerar_dados_exemplo():
         'total_impostos': 8881.59,
         'total_impostos_br': 'R$ 8.881,59',
         
-        # Dados para gráfico
+        # Gráfico
         'labels': ['600601', '400401'],
         'valores': [184319.65, 713.51],
         
-        # Linhas por cClass
+        # Tabela cClass
         'linhas': [
             {
                 'cClass': '600601',
@@ -159,7 +265,6 @@ def gerar_dados_exemplo():
                 'cfops': [
                     {
                         'cfop': '5307',
-                        'v_total': 184319.65,
                         'v_total_br': 'R$ 184.319,65',
                         'notas': [
                             {
@@ -186,7 +291,7 @@ def gerar_dados_exemplo():
             }
         ],
         
-        # Itens
+        # Tabela Itens
         'itens_linhas': [
             {
                 'item': '165',
@@ -218,109 +323,10 @@ def gerar_dados_exemplo():
                 'pct': 18.70,
                 'pct_br': '18,70%',
                 'notas': []
-            },
-            {
-                'item': '770',
-                'desc': 'GOV SCI 4000MBPS',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 33200.00,
-                'v_total_br': 'R$ 33.200,00',
-                'pct': 17.94,
-                'pct_br': '17,94%',
-                'notas': []
-            },
-            {
-                'item': '690',
-                'desc': 'CONCENTRADOR SCI 1000 MBPS',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 30000.00,
-                'v_total_br': 'R$ 30.000,00',
-                'pct': 16.21,
-                'pct_br': '16,21%',
-                'notas': []
-            },
-            {
-                'item': '168',
-                'desc': 'GOV SCI 50 MBPS',
-                'cClass': '600601',
-                'qtd_itens': 2,
-                'v_total': 11280.00,
-                'v_total_br': 'R$ 11.280,00',
-                'pct': 6.10,
-                'pct_br': '6,10%',
-                'notas': []
-            },
-            {
-                'item': '163',
-                'desc': 'GOV SCI 300 MBPS',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 7200.00,
-                'v_total_br': 'R$ 7.200,00',
-                'pct': 3.89,
-                'pct_br': '3,89%',
-                'notas': []
-            },
-            {
-                'item': '577',
-                'desc': 'GOV SCI 10MBPS',
-                'cClass': '600601',
-                'qtd_itens': 3,
-                'v_total': 4641.75,
-                'v_total_br': 'R$ 4.641,75',
-                'pct': 2.51,
-                'pct_br': '2,51%',
-                'notas': []
-            },
-            {
-                'item': '158',
-                'desc': 'PROVIMENTO DE ACESSO A INTERNET - SCI',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 2854.04,
-                'v_total_br': 'R$ 2.854,04',
-                'pct': 1.54,
-                'pct_br': '1,54%',
-                'notas': []
-            },
-            {
-                'item': '451',
-                'desc': 'CONCENTRADOR SCI 50 MBPS',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 2027.87,
-                'v_total_br': 'R$ 2.027,87',
-                'pct': 1.10,
-                'pct_br': '1,10%',
-                'notas': []
-            },
-            {
-                'item': '175',
-                'desc': 'GOV SCI 30 MBPS',
-                'cClass': '600601',
-                'qtd_itens': 1,
-                'v_total': 1258.68,
-                'v_total_br': 'R$ 1.258,68',
-                'pct': 0.68,
-                'pct_br': '0,68%',
-                'notas': []
-            },
-            {
-                'item': '158',
-                'desc': 'GOV SCM 40 MBPS',
-                'cClass': '400401',
-                'qtd_itens': 1,
-                'v_total': 713.51,
-                'v_total_br': 'R$ 713,51',
-                'pct': 0.39,
-                'pct_br': '0,39%',
-                'notas': []
             }
         ],
         
-        # Impostos
+        # Tabela Impostos
         'impostos_linhas': [
             {
                 'tipo': 'IRRF Retido',
@@ -336,44 +342,16 @@ def gerar_dados_exemplo():
                         'xNome': 'NOVA TELECOM LTDA',
                         'xContato': 'AGENCIA DE DEFESA AGROPECUARIA DO ESTADO DO TOCANTINS',
                         'dhEmi_fmt': '05/12/2025',
-                        'vProd_br': 'R$ 0,00',
                         'pis_ret': 0.00,
                         'cofins_ret': 0.00,
                         'csll_ret': 0.00,
                         'irrf_ret': 6927.36,
                         'total_retido': 6927.36
-                    },
-                    {
-                        'nNF': '10896',
-                        'cNF': '212182',
-                        'xNome': 'NOVA TELECOM LTDA',
-                        'xContato': 'AGENCIA DE TECNOLOGIA DA INFORMACAO',
-                        'dhEmi_fmt': '05/12/2025',
-                        'vProd_br': 'R$ 0,00',
-                        'pis_ret': 0.00,
-                        'cofins_ret': 0.00,
-                        'csll_ret': 0.00,
-                        'irrf_ret': 1593.60,
-                        'total_retido': 1593.60
-                    },
-                    {
-                        'nNF': '10841',
-                        'cNF': '730003',
-                        'xNome': 'NOVA TELECOM LTDA',
-                        'xContato': 'AGENCIA DE REGULACAO, CONTROLE E FISCALIZACAO DE SERVICOS PU',
-                        'dhEmi_fmt': '04/12/2025',
-                        'vProd_br': 'R$ 0,00',
-                        'pis_ret': 0.00,
-                        'cofins_ret': 0.00,
-                        'csll_ret': 0.00,
-                        'irrf_ret': 360.63,
-                        'total_retido': 360.63
                     }
                 ]
             }
         ],
         
-        # Debug info
         'debug': {
             'total_xml': 3,
             'total_ok': 3,
@@ -381,6 +359,31 @@ def gerar_dados_exemplo():
             'primeiro_erro': None
         }
     }
+
+# Limpeza automática de arquivos temporários antigos
+def limpar_temporarios():
+    """Limpa arquivos temporários com mais de 24 horas"""
+    agora = datetime.now().timestamp()
+    for dir_path in [TEMP_DIR, UPLOADS_DIR]:
+        if os.path.exists(dir_path):
+            for filename in os.listdir(dir_path):
+                file_path = os.path.join(dir_path, filename)
+                if os.path.isfile(file_path):
+                    file_age = agora - os.path.getmtime(file_path)
+                    if file_age > 86400:  # 24 horas
+                        os.remove(file_path)
+
+@app.before_request
+def before_request():
+    """Executa antes de cada requisição"""
+    # Limpa temporários periodicamente
+    if not hasattr(app, 'last_cleanup'):
+        app.last_cleanup = datetime.now().timestamp()
+    
+    agora = datetime.now().timestamp()
+    if agora - app.last_cleanup > 3600:  # A cada hora
+        limpar_temporarios()
+        app.last_cleanup = agora
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
