@@ -15,7 +15,6 @@
         <label class="pill"><input type="checkbox" id="removerOutros">&nbsp;Remover outros</label>
       </div>
 
-
       <div id="sugestoesBox" class="note" style="display:none;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
           <div style="flex:1;min-width:180px;">
@@ -37,10 +36,21 @@
 
       <textarea class="input" id="regrasTexto" rows="6" placeholder="Regras (uma por linha): cClass;CFOP"></textarea>
 
-      <button class="btn" type="submit"><i data-lucide="wand-2"></i> Processar</button>
+      <button class="btn" type="submit" id="btnProcessar"><i data-lucide="wand-2"></i> Processar</button>
     </form>
 
-    <div id="loteOut" class="note" style="display:none;">
+    <div id="loteProgress" class="note" style="display:none;margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="lotePct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="loteBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="loteInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+      <div id="loteRate" style="margin-top:4px;color:var(--muted);font-size:13px;">Taxa: -- XML/s</div>
+    </div>
+
+    <div id="loteOut" class="note" style="display:none; margin-top:12px;">
+      <div id="loteResumo" style="margin-bottom:8px;"></div>
       <a class="btn btn-outline" id="btnDownload" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
     </div>
   </div>
@@ -55,6 +65,50 @@
   const selF = document.getElementById('selCFOP');
   const btnAdd = document.getElementById('btnAddRegra');
   const regras = document.getElementById('regrasTexto');
+  const out = document.getElementById('loteOut');
+  const btn = document.getElementById('btnDownload');
+  const progress = document.getElementById('loteProgress');
+  const lotePct = document.getElementById('lotePct');
+  const loteBar = document.getElementById('loteBar');
+  const loteInfo = document.getElementById('loteInfo');
+  const loteRate = document.getElementById('loteRate');
+  const loteResumo = document.getElementById('loteResumo');
+  const btnProcessar = document.getElementById('btnProcessar');
+
+  function updateProgress(pct, info, rate){
+    const value = Math.max(0, Math.min(100, Number(pct || 0)));
+    lotePct.textContent = `${value}%`;
+    loteBar.style.width = `${value}%`;
+    loteInfo.textContent = info || 'Processando...';
+    loteRate.textContent = `Taxa: ${Number(rate || 0).toFixed(2)} XML/s`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/lote/status/${sessionId}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar progresso');
+
+      const total = j.total || 0;
+      const processed = j.processed || 0;
+      const eta = (j.eta_seconds || 0);
+      const etaTxt = eta > 0 ? ` | ETA: ${eta}s` : '';
+      const changed = Number(j.changed_files || 0);
+      const changedPct = Number(j.changed_pct || 0).toFixed(2);
+      updateProgress(j.progress || 0, `Status: ${j.status || 'running'} | Processados: ${processed}/${total} | Alterados: ${changed} (${changedPct}%)${etaTxt}`, j.rate_xml_s || 0);
+
+      if(j.status === 'error'){
+        throw new Error(j.error || 'Erro no processamento');
+      }
+      if(j.done){
+        btn.href = `/api/lote/baixar/${sessionId}`;
+        loteResumo.textContent = `Arquivos alterados: ${j.changed_files || 0} (${Number(j.changed_pct || 0).toFixed(2)}%) | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 700));
+    }
+  }
 
   // Carrega cClass/CFOP do último Resumo (se existir)
   (async ()=>{
@@ -81,13 +135,16 @@
     regras.value = cur ? (cur + '\n' + line) : line;
     regras.focus();
   });
-  const out = document.getElementById('loteOut');
-  const btn = document.getElementById('btnDownload');
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const f = document.getElementById('zipLote').files[0];
     if(!f) return alert('Selecione um ZIP.');
+
+    out.style.display = 'none';
+    progress.style.display = 'block';
+    updateProgress(0, 'Iniciando processamento...', 0);
+    btnProcessar.disabled = true;
 
     const fd = new FormData();
     fd.append('zip_xmls', f);
@@ -95,13 +152,17 @@
     fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true':'false');
     fd.append('regras_cclass_cfop', document.getElementById('regrasTexto').value || '');
 
-    const r = await fetch('/api/lote/processar', {method:'POST', body: fd});
-    const j = await r.json();
-    if(!j.success){ alert(j.error || 'Erro'); return; }
-
-    btn.href = j.download_url;
-    out.style.display = 'block';
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    try{
+      const r = await fetch('/api/lote/processar', {method:'POST', body: fd});
+      const j = await r.json();
+      if(!j.success){ alert(j.error || 'Erro'); return; }
+      await pollStatus(j.session_id);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }catch(err){
+      alert(err.message || 'Erro ao processar lote');
+    }finally{
+      btnProcessar.disabled = false;
+    }
   });
 </script>
 {% endblock %}

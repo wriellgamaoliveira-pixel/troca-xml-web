@@ -304,6 +304,63 @@ def csv_page():
     return render_template("csv.html")
 
 # =========================================================
+# Lote assíncrono (com progresso + taxa)
+# =========================================================
+@app.route("/api/lote/processar", methods=["POST"])
+def api_lote_processar():
+    try:
+        if "zip_xmls" not in request.files:
+            return jsonify({"success": False, "error": "Envie o ZIP no campo zip_xmls"}), 400
+
+        zf = request.files["zip_xmls"]
+        if not zf.filename.lower().endswith(".zip"):
+            return jsonify({"success": False, "error": "Envie um arquivo .zip"}), 400
+
+        sid = str(uuid.uuid4())
+        zip_path = os.path.join(UPLOADS_DIR, f"lote_{sid}.zip")
+        zf.save(zip_path)
+
+        remover_desconto = (request.form.get("remover_desconto", "false").lower() == "true")
+        remover_outros = (request.form.get("remover_outros", "false").lower() == "true")
+        regras_txt = request.form.get("regras_cclass_cfop", "")
+
+        session["lote_session_id"] = sid
+        _set_lote_status(sid, status="queued", done=False, progress=0, processed=0, total=None, rate_xml_s=0.0)
+
+        th = threading.Thread(
+            target=_process_zip_lote_async,
+            args=(sid, zip_path, remover_desconto, remover_outros, regras_txt),
+            daemon=True,
+        )
+        th.start()
+
+        return jsonify({"success": True, "session_id": sid})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/lote/status/<sid>")
+def api_lote_status(sid):
+    st = r_get_json(f"lote:status:{sid}")
+    if not st:
+        return jsonify({"success": True, "status": "nao_encontrado", "done": True, "progress": 0})
+    st["success"] = True
+    return jsonify(st)
+
+@app.route("/api/lote/baixar/<sid>")
+def api_lote_baixar(sid):
+    st = r_get_json(f"lote:status:{sid}")
+    if not st:
+        return jsonify({"success": False, "error": "Sessão não encontrada"}), 404
+    if st.get("status") != "done" or not st.get("output_path"):
+        return jsonify({"success": False, "error": "Processamento ainda não finalizado"}), 409
+
+    out_path = st["output_path"]
+    if not os.path.exists(out_path):
+        return jsonify({"success": False, "error": "Arquivo de saída não encontrado"}), 404
+
+    return send_file(out_path, as_attachment=True, download_name=f"lote_processado_{sid}.zip", mimetype="application/zip")
+
+# =========================================================
 # Nota única: retorna HTML via JS (a tela formata)
 # =========================================================
 @app.route("/api/nota/visualizar", methods=["POST"])
@@ -325,11 +382,143 @@ def api_nota_visualizar():
 # =========================================================
 SUMMARY_TTL = 60 * 60 * 4  # 4h
 DETAILS_LIMIT = 800  # evita JSON gigante
+LOTE_TTL = 60 * 60 * 4
 
 def _set_status(sid, **kw):
     st = r_get_json(f"resumo:status:{sid}") or {"session_id": sid}
     st.update(kw)
     r_setex(f"resumo:status:{sid}", SUMMARY_TTL, st)
+
+def _set_lote_status(sid, **kw):
+    st = r_get_json(f"lote:status:{sid}") or {"session_id": sid}
+    st.update(kw)
+    r_setex(f"lote:status:{sid}", LOTE_TTL, st)
+
+def _find_child(parent, tag_name):
+    if parent is None:
+        return None
+    for child in parent.iterchildren():
+        if etree.QName(child).localname == tag_name:
+            return child
+    return None
+
+def _parse_regras(regras_texto: str):
+    regras = {}
+    for raw in (regras_texto or "").splitlines():
+        line = raw.strip()
+        if not line or ";" not in line:
+            continue
+        cclass, cfop = [x.strip() for x in line.split(";", 1)]
+        if cclass and cfop:
+            regras[cclass] = cfop
+    return regras
+
+def _process_zip_lote_async(sid: str, zip_path: str, remover_desconto: bool, remover_outros: bool, regras_txt: str):
+    started = time.time()
+    regras = _parse_regras(regras_txt)
+
+    _set_lote_status(
+        sid,
+        status="running",
+        done=False,
+        progress=0,
+        processed=0,
+        total=None,
+        rate_xml_s=0.0,
+        started_at=datetime.now().isoformat(),
+        error=None,
+    )
+
+    out_zip_path = os.path.join(TEMP_DIR, f"lote_{sid}.zip")
+    changed_files = 0
+    total_changes = 0
+    total_errors = 0
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zin:
+            names = [n for n in zin.namelist() if n.lower().endswith(".xml")]
+            total = len(names)
+            if total == 0:
+                raise Exception("Nenhum XML encontrado no ZIP")
+
+            _set_lote_status(sid, total=total)
+
+            with zipfile.ZipFile(out_zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
+                for idx, name in enumerate(names, start=1):
+                    try:
+                        xml_bytes = zin.read(name)
+                        root = etree.fromstring(xml_bytes)
+                        changes_in_file = 0
+
+                        for det in root.xpath("//*[local-name()='det']"):
+                            prod = det.xpath(".//*[local-name()='prod']")
+                            prod = prod[0] if prod else None
+                            if prod is None:
+                                continue
+
+                            if remover_desconto:
+                                el = _find_child(prod, "vDesc")
+                                if el is not None and (el.text or "").strip() != "0":
+                                    el.text = "0.00"
+                                    changes_in_file += 1
+
+                            if remover_outros:
+                                el = _find_child(prod, "vOutro")
+                                if el is not None and (el.text or "").strip() != "0":
+                                    el.text = "0.00"
+                                    changes_in_file += 1
+
+                            cclass_el = _find_child(prod, "cClass")
+                            cfop_el = _find_child(prod, "CFOP")
+                            cclass = (cclass_el.text or "").strip() if cclass_el is not None else ""
+                            target_cfop = regras.get(cclass)
+                            if target_cfop and cfop_el is not None and (cfop_el.text or "").strip() != target_cfop:
+                                cfop_el.text = target_cfop
+                                changes_in_file += 1
+
+                        if changes_in_file > 0:
+                            changed_files += 1
+                            total_changes += changes_in_file
+
+                        zout.writestr(name, etree.tostring(root, encoding="utf-8", xml_declaration=True))
+                    except Exception:
+                        total_errors += 1
+
+                    elapsed = max(time.time() - started, 1e-9)
+                    rate = idx / elapsed
+                    pct = int((idx / total) * 100)
+                    eta_seconds = max(int((total - idx) / max(rate, 1e-9)), 0)
+
+                    changed_pct = round((changed_files / max(idx, 1)) * 100, 2)
+                    if idx % 10 == 0 or idx == total:
+                        _set_lote_status(
+                            sid,
+                            progress=pct,
+                            processed=idx,
+                            total=total,
+                            rate_xml_s=round(rate, 2),
+                            eta_seconds=eta_seconds,
+                            changed_files=changed_files,
+                            changed_pct=changed_pct,
+                            total_changes=total_changes,
+                            errors=total_errors,
+                        )
+
+        _set_lote_status(
+            sid,
+            status="done",
+            done=True,
+            progress=100,
+            output_path=out_zip_path,
+            finished_at=datetime.now().isoformat(),
+            rate_xml_s=round((total / max(time.time() - started, 1e-9)), 2),
+            changed_files=changed_files,
+            changed_pct=round((changed_files / max(total, 1)) * 100, 2),
+            total_changes=total_changes,
+            errors=total_errors,
+        )
+    except Exception as e:
+        _set_lote_status(sid, status="error", done=True, error=str(e), finished_at=datetime.now().isoformat())
 
 def _process_zip_resumo(sid: str, zip_path: str):
     """
