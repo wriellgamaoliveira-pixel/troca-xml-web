@@ -15,6 +15,26 @@
         <label class="pill"><input type="checkbox" id="removerOutros">&nbsp;Remover outros</label>
       </div>
 
+
+      <div id="sugestoesBox" class="note" style="display:none;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="flex:1;min-width:180px;">
+            <label class="label">cClass do Resumo</label>
+            <select class="input" id="selCClass"></select>
+          </div>
+          <div style="flex:1;min-width:180px;">
+            <label class="label">CFOP do Resumo</label>
+            <select class="input" id="selCFOP"></select>
+          </div>
+          <button class="btn btn-outline" type="button" id="btnAddRegra">
+            <i data-lucide="plus"></i> Adicionar regra
+          </button>
+        </div>
+        <div style="margin-top:8px;color:#6b7280;font-size:13px;">
+          Sugestões lidas do último <b>Resumo</b> (cClass/CFOP encontrados no ZIP). Você pode adicionar e editar como quiser.
+        </div>
+      </div>
+
       <textarea class="input" id="regrasTexto" rows="6" placeholder="Regras (uma por linha): cClass;CFOP"></textarea>
 
       <button class="btn" type="submit"><i data-lucide="wand-2"></i> Processar</button>
@@ -30,6 +50,37 @@
 {% block extra_js %}
 <script>
   const form = document.getElementById('loteForm');
+  const box = document.getElementById('sugestoesBox');
+  const selC = document.getElementById('selCClass');
+  const selF = document.getElementById('selCFOP');
+  const btnAdd = document.getElementById('btnAddRegra');
+  const regras = document.getElementById('regrasTexto');
+
+  // Carrega cClass/CFOP do último Resumo (se existir)
+  (async ()=>{
+    try{
+      const r = await fetch('/api/resumo/choices');
+      if(!r.ok) return;
+      const j = await r.json();
+      if(!j.success) return;
+      const cclass = (j.choices && j.choices.cclass) || [];
+      const cfop = (j.choices && j.choices.cfop) || [];
+      if(cclass.length===0 && cfop.length===0) return;
+      selC.innerHTML = cclass.map(v=>`<option value="${v}">${v}</option>`).join('');
+      selF.innerHTML = cfop.map(v=>`<option value="${v}">${v}</option>`).join('');
+      box.style.display = 'block';
+    }catch(e){}
+  })();
+
+  btnAdd?.addEventListener('click', ()=>{
+    const c = selC?.value;
+    const f = selF?.value;
+    if(!c || !f) return alert('Selecione cClass e CFOP');
+    const line = `${c};${f}`;
+    const cur = (regras.value || '').trim();
+    regras.value = cur ? (cur + '\n' + line) : line;
+    regras.focus();
+  });
   const out = document.getElementById('loteOut');
   const btn = document.getElementById('btnDownload');
 
