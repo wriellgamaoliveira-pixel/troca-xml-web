@@ -23,11 +23,11 @@
         </div>
         <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
         <div style="margin-top:8px;color:var(--muted);font-size:12px;">
-          Dica: para ZIPs muito grandes, o processamento pode levar alguns minutos (o sistema faz de forma segura para não travar).
+          <span id="progressInfo">Aguardando...</span>
         </div>
       </div>
 
-      <button class="btn" id="btnProcessar" type="submit"><i data-lucide="upload"></i> Processar</button>
+      <button class="btn" type="submit"><i data-lucide="upload"></i> Processar</button>
     </form>
   </div>
 </div>
@@ -35,88 +35,71 @@
 
 {% block extra_js %}
 <script>
-  const form = document.getElementById('uploadForm');
-  const fileInput = document.getElementById('fileInput');
   const progressContainer = document.getElementById('progressContainer');
   const progressFill = document.getElementById('progressFill');
   const progressPercent = document.getElementById('progressPercent');
-  const btnProcessar = document.getElementById('btnProcessar');
+  const progressInfo = document.getElementById('progressInfo');
 
-  function setProgress(p){
+  function setProgress(p, info){
     const v = Math.max(0, Math.min(100, Number(p||0)));
     progressFill.style.width = v + '%';
     progressPercent.textContent = v + '%';
+    if(info) progressInfo.textContent = info;
   }
 
-  async function pollStatus(sessionId, redirectUrl){
-    // polling até concluir (evita timeout do Render em ZIP grande)
+  async function pollStatus(sessionId){
     let tries = 0;
-    const maxTries = 60 * 30; // ~30 min (1s)
-    while(true){
-      tries++;
-      if(tries > maxTries){
-        alert('O processamento está demorando muito. Tente novamente ou use um ZIP menor.');
-        btnProcessar.disabled = false;
-        return;
+    const timer = setInterval(async ()=>{
+      tries += 1;
+      try{
+        const r = await fetch(`/api/resumo/status?session_id=${encodeURIComponent(sessionId)}`);
+        const j = await r.json();
+        if(!j.success){
+          clearInterval(timer);
+          alert(j.error || 'Erro ao processar');
+          return;
+        }
+        const info = (j.total ? `${j.processed||0}/${j.total} XMLs` : (j.status || 'processando...'));
+        setProgress(j.progress || 0, info);
+
+        if(j.done){
+          clearInterval(timer);
+          if(j.status === 'error'){
+            alert(j.error || 'Erro ao processar');
+            return;
+          }
+          window.location.href = j.redirect || '/resumo/resultado';
+        }
+      }catch(e){
+        if(tries > 5){
+          clearInterval(timer);
+          alert('Erro ao consultar status: ' + e.message);
+        }
       }
-
-      const r = await fetch(`/api/resumo/status?session_id=${encodeURIComponent(sessionId)}`);
-      const j = await r.json().catch(()=>({}));
-
-      if(!r.ok || !j.success){
-        // se status não existir ainda, continua
-        await new Promise(res => setTimeout(res, 1000));
-        continue;
-      }
-
-      setProgress(j.progress || 0);
-
-      if(j.status === 'done'){
-        setProgress(100);
-        window.location.href = redirectUrl;
-        return;
-      }
-      if(j.status === 'error'){
-        alert(j.error || 'Erro ao processar');
-        btnProcessar.disabled = false;
-        return;
-      }
-
-      await new Promise(res => setTimeout(res, 1000));
-    }
+    }, 800);
   }
 
-  form.addEventListener('submit', async (e)=>{
+  document.getElementById('uploadForm').addEventListener('submit', async function(e){
     e.preventDefault();
-    const file = fileInput.files[0];
+    const file = document.getElementById('fileInput').files[0];
     if(!file) return alert('Selecione um ZIP.');
 
     const fd = new FormData();
     fd.append('file', file);
 
     progressContainer.classList.remove('hidden');
-    setProgress(1);
-    btnProcessar.disabled = true;
+    setProgress(1, 'Enviando...');
 
     try{
       const r = await fetch('/api/resumo/upload', {method:'POST', body: fd});
       const j = await r.json().catch(()=>({}));
-
       if(!r.ok || !j.success){
-        progressContainer.classList.add('hidden');
-        btnProcessar.disabled = false;
         alert((j && j.error) ? j.error : 'Erro ao processar');
         return;
       }
-
-      // começa polling
-      const sessionId = j.session_id;
-      const redirectUrl = j.redirect || (`/resumo/resultado?session_id=${encodeURIComponent(sessionId)}`);
-      await pollStatus(sessionId, redirectUrl);
-
+      setProgress(2, 'Iniciando processamento...');
+      pollStatus(j.session_id);
     }catch(err){
-      progressContainer.classList.add('hidden');
-      btnProcessar.disabled = false;
       alert('Erro: ' + err.message);
     }
   });
