@@ -332,8 +332,33 @@ def _set_status(sid, **kw):
     r_setex(f"resumo:status:{sid}", SUMMARY_TTL, st)
 
 def _process_zip_resumo(sid: str, zip_path: str):
+    """
+    Processa o ZIP em background e grava:
+      - resumo:status:<sid> (progresso/estado)
+      - resumo:data:<sid>   (payload compacto para o front)
+    Importante: para ZIPs grandes, o payload NÃO pode explodir (memória/Redis).
+    Por isso, guardamos apenas AMOSTRAS de notas relacionadas (limitadas).
+    """
+    NOTES_LIMIT = 6  # quantidade máxima de notas relacionadas por grupo
     try:
-        _set_status(sid, status="running", progress=0, error=None, done=False, started_at=datetime.now().isoformat())
+        _set_status(
+            sid,
+            status="running",
+            progress=0,
+            error=None,
+            done=False,
+            started_at=datetime.now().isoformat(),
+            processed=0,
+            total=None,
+        )
+
+        def add_note(lst, note):
+            if lst is None:
+                return
+            if len(lst) >= NOTES_LIMIT:
+                return
+            lst.append(note)
+
         with zipfile.ZipFile(zip_path, "r") as z:
             names = [n for n in z.namelist() if n.lower().endswith(".xml")]
             total = len(names)
@@ -341,9 +366,11 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 raise Exception("Nenhum XML encontrado no ZIP")
 
             # Agregadores
-            by_cclass = {}      # cClass -> {desc, qtd, total, cfops{cfop->total}}
-            by_item = {}        # (cProd,cClass,desc) -> {qtd,total}
-            impostos = {"PIS Ret.":0.0,"COFINS Ret.":0.0,"CSLL Ret.":0.0,"IRRF Ret.":0.0}
+            by_cclass = {}  # cClass -> {desc,qtd_itens,v_total, cfops{cfop->v}, cfop_notes{cfop->[]}}
+            by_item = {}    # (cProd,cClass,desc) -> {item,desc,cClass,qtd_itens,v_total, notas:[]}
+            impostos = {"PIS Ret.": 0.0, "COFINS Ret.": 0.0, "CSLL Ret.": 0.0, "IRRF Ret.": 0.0}
+            impostos_notas = {"PIS Ret.": [], "COFINS Ret.": [], "CSLL Ret.": [], "IRRF Ret.": []}
+
             emit_nome = None
             emit_cnpj = None
             total_geral = 0.0
@@ -351,7 +378,6 @@ def _process_zip_resumo(sid: str, zip_path: str):
             falhas = 0
             primeiro_erro = None
 
-            # Limites de detalhes (notas relacionadas) — em ZIP grande, não explode
             for i, name in enumerate(names, start=1):
                 try:
                     xml_bytes = z.read(name)
@@ -363,7 +389,16 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         emit_nome = (d.get("emitente") or {}).get("xNome")
                         emit_cnpj = (d.get("emitente") or {}).get("CNPJ")
 
-                    # Totais por itens
+                    # informações básicas da nota (para sublinhas)
+                    nota_base = {
+                        "nNF": d.get("nNF"),
+                        "cNF": d.get("cNF"),
+                        "xNome": (d.get("emitente") or {}).get("xNome"),
+                        "xContato": (d.get("destinatario") or {}).get("xNome"),
+                        "dhEmi_fmt": d.get("dhEmi_fmt") or br_date(d.get("dhEmi") or ""),
+                        "arquivo": name,
+                    }
+
                     itens = d.get("itens") or []
                     for it in itens:
                         cClass = (it.get("cClass") or "").strip()
@@ -371,66 +406,112 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         cProd = (it.get("cProd") or "").strip()
                         xProd = (it.get("xProd") or "").strip()
                         v = float(it.get("vProd") or 0.0)
+
                         total_geral += v
 
-                        # cClass
+                        # --- Agrupa por cClass
                         if cClass:
-                            rec = by_cclass.setdefault(cClass, {"cClass": cClass, "desc": xProd or "", "qtd_itens": 0, "v_total": 0.0, "cfops": {}})
+                            rec = by_cclass.setdefault(
+                                cClass,
+                                {
+                                    "cClass": cClass,
+                                    "desc": xProd or "",
+                                    "qtd_itens": 0,
+                                    "v_total": 0.0,
+                                    "cfops": {},
+                                    "cfop_notes": {},  # cfop -> [notas]
+                                },
+                            )
                             if not rec["desc"] and xProd:
                                 rec["desc"] = xProd
                             rec["qtd_itens"] += 1
                             rec["v_total"] += v
+
                             if cfop:
                                 rec["cfops"][cfop] = rec["cfops"].get(cfop, 0.0) + v
+                                notas_lst = rec["cfop_notes"].setdefault(cfop, [])
+                                add_note(notas_lst, {**nota_base, "valor": v, "valor_br": br_money(v)})
 
-                        # item
-                        key = (cProd, cClass, xProd)
+                        # --- Agrupa por item (cProd)
                         if cProd:
-                            ir = by_item.setdefault(key, {"item": cProd, "desc": xProd, "cClass": cClass, "qtd_itens": 0, "v_total": 0.0})
+                            key = (cProd, cClass, xProd)
+                            ir = by_item.setdefault(
+                                key,
+                                {
+                                    "item": cProd,
+                                    "desc": xProd,
+                                    "cClass": cClass,
+                                    "qtd_itens": 0,
+                                    "v_total": 0.0,
+                                    "notas": [],
+                                },
+                            )
                             ir["qtd_itens"] += 1
                             ir["v_total"] += v
+                            add_note(ir["notas"], {**nota_base, "valor": v, "valor_br": br_money(v)})
 
-                    # Retenções (NFCom)
+                    # --- Retenções (NFCom)
                     rtt = d.get("retencoes") or {}
-                    impostos["PIS Ret."] += float(rtt.get("vRetPIS") or 0.0)
-                    impostos["COFINS Ret."] += float(rtt.get("vRetCofins") or 0.0)
-                    impostos["CSLL Ret."] += float(rtt.get("vRetCSLL") or 0.0)
-                    impostos["IRRF Ret."] += float(rtt.get("vIRRF") or 0.0)
+                    v_pis = float(rtt.get("vRetPIS") or 0.0)
+                    v_cof = float(rtt.get("vRetCofins") or 0.0)
+                    v_csl = float(rtt.get("vRetCSLL") or 0.0)
+                    v_irr = float(rtt.get("vIRRF") or 0.0)
+
+                    if v_pis:
+                        impostos["PIS Ret."] += v_pis
+                        add_note(impostos_notas["PIS Ret."], {**nota_base, "valor": v_pis, "valor_br": br_money(v_pis)})
+                    if v_cof:
+                        impostos["COFINS Ret."] += v_cof
+                        add_note(impostos_notas["COFINS Ret."], {**nota_base, "valor": v_cof, "valor_br": br_money(v_cof)})
+                    if v_csl:
+                        impostos["CSLL Ret."] += v_csl
+                        add_note(impostos_notas["CSLL Ret."], {**nota_base, "valor": v_csl, "valor_br": br_money(v_csl)})
+                    if v_irr:
+                        impostos["IRRF Ret."] += v_irr
+                        add_note(impostos_notas["IRRF Ret."], {**nota_base, "valor": v_irr, "valor_br": br_money(v_irr)})
 
                     ok += 1
+
                 except Exception as e:
                     falhas += 1
                     if not primeiro_erro:
                         primeiro_erro = f"{name}: {e}"
 
                 if i % 25 == 0 or i == total:
-                    _set_status(sid, progress=int((i/total)*100), processed=i, total=total)
+                    _set_status(sid, progress=int((i / total) * 100), processed=i, total=total)
 
             # Monta payload compacto
             linhas = []
             for c, rec in by_cclass.items():
                 cfops_list = []
                 for cfop, v in rec["cfops"].items():
-                    cfops_list.append({"cfop": cfop, "v_total": v, "v_total_br": br_money(v), "notas": []})
-                linhas.append({
-                    "cClass": c,
-                    "desc": rec["desc"] or "",
-                    "qtd_itens": rec["qtd_itens"],
-                    "v_total": rec["v_total"],
-                    "v_total_br": br_money(rec["v_total"]),
-                    "pct": 0.0,
-                    "pct_br": "",
-                    "cfops": cfops_list[:DETAILS_LIMIT],
-                })
+                    cfops_list.append(
+                        {
+                            "cfop": cfop,
+                            "v_total": v,
+                            "v_total_br": br_money(v),
+                            "notas": rec["cfop_notes"].get(cfop, [])[:NOTES_LIMIT],
+                        }
+                    )
+                linhas.append(
+                    {
+                        "cClass": c,
+                        "desc": rec["desc"] or "",
+                        "qtd_itens": rec["qtd_itens"],
+                        "v_total": rec["v_total"],
+                        "v_total_br": br_money(rec["v_total"]),
+                        "pct": 0.0,
+                        "pct_br": "",
+                        "cfops": sorted(cfops_list, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT],
+                    }
+                )
 
-            # porcentagens
-            total = max(total_geral, 1e-9)
+            total_base = max(total_geral, 1e-9)
             for l in linhas:
-                pct = (l["v_total"] / total) * 100.0
+                pct = (l["v_total"] / total_base) * 100.0
                 l["pct"] = pct
                 l["pct_br"] = f"{pct:.2f}%".replace(".", ",")
 
-            # labels top 12
             top = sorted(linhas, key=lambda x: x["v_total"], reverse=True)[:12]
             labels = [x["cClass"] for x in top]
             valores = [x["v_total"] for x in top]
@@ -441,27 +522,23 @@ def _process_zip_resumo(sid: str, zip_path: str):
             itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT]
 
             # impostos_linhas
-            total = sum(impostos.values()) or 0.0
+            R = sum(impostos.values()) or 0.0
             impostos_linhas = []
             for tipo, v in impostos.items():
                 if v <= 0:
                     continue
-                pct = (v / max(R, 1e-9)) * 100.0 if (R:=R) else 0.0
-            # compute properly
-            R = sum(impostos.values()) or 0.0
-            for tipo, v in impostos.items():
-                if v <= 0:
-                    continue
                 pct = (v / max(R, 1e-9)) * 100.0
-                impostos_linhas.append({
-                    "tipo": tipo.replace(" Ret.", " Retido") if "Ret." in tipo else tipo,
-                    "qtd_notas": ok,
-                    "v_total": v,
-                    "v_total_br": br_money(v),
-                    "pct": pct,
-                    "pct_br": f"{pct:.2f}%".replace(".", ","),
-                    "notas": [],
-                })
+                impostos_linhas.append(
+                    {
+                        "tipo": tipo.replace(" Ret.", " Retido"),
+                        "qtd_notas": ok,
+                        "v_total": v,
+                        "v_total_br": br_money(v),
+                        "pct": pct,
+                        "pct_br": f"{pct:.2f}%".replace(".", ","),
+                        "notas": impostos_notas.get(tipo, [])[:NOTES_LIMIT],
+                    }
+                )
 
             data = {
                 "emitente_nome": emit_nome,
@@ -484,6 +561,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
 
     except Exception as e:
         _set_status(sid, status="error", done=True, error=str(e), progress=100, finished_at=datetime.now().isoformat())
+
 
 @app.route("/api/resumo/upload", methods=["POST"])
 def api_resumo_upload():
