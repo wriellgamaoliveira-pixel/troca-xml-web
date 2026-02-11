@@ -247,7 +247,16 @@ def parse_nfcom_nota(root: etree._Element):
         totals["vFUST"] = br_money(safe_float(xtext(total, './*[local-name()="vFUST"]')))
         totals["vFUNTTEL"] = br_money(safe_float(xtext(total, './*[local-name()="vFUNTTEL"]')))
         totals["vNF"] = br_money(safe_float(xtext(total, './*[local-name()="vNF"]')))
-        totals["vRetTribTot"] = br_money(safe_float(xtext(total, './*[local-name()="vRetTribTot"]')))
+        # Retenções (vRetTribTot)
+        vret_node = xfirst(total, './*[local-name()="vRetTribTot"]')
+        if vret_node is not None:
+            vret_pis = safe_float(xtext(vret_node, './*[local-name()="vRetPIS"]'))
+            vret_cof = safe_float(xtext(vret_node, './*[local-name()="vRetCofins"]'))
+            vret_csll = safe_float(xtext(vret_node, './*[local-name()="vRetCSLL"]'))
+            vret_irrf = safe_float(xtext(vret_node, './*[local-name()="vIRRF"]'))
+        else:
+            vret_pis = vret_cof = vret_csll = vret_irrf = 0.0
+        totals["vRetTribTot"] = br_money(vret_pis + vret_cof + vret_csll + vret_irrf)
 
     return {
         "tipo": "NFCom",
@@ -271,10 +280,10 @@ def parse_nfcom_nota(root: etree._Element):
         "itens": itens,
         "totais": totals,
         "retencoes": {
-            "pis": "R$ 0,00",
-            "cofins": "R$ 0,00",
-            "csll": "R$ 0,00",
-            "irrf": "R$ 0,00",
+            "pis": br_money(vret_pis),
+            "cofins": br_money(vret_cof),
+            "csll": br_money(vret_csll),
+            "irrf": br_money(vret_irrf),
         }
     }
 
@@ -357,6 +366,8 @@ def parse_any(xml_bytes: bytes):
 MAX_NOTAS_DETALHE_POR_GRUPO = 80  # evita JSON gigante
 MAX_NOTAS_DETALHE_IMPOSTO = 200
 
+LARGE_ZIP_THRESHOLD = 500
+
 def norm_cclass(s):
     if s is None:
         return ""
@@ -386,6 +397,11 @@ def process_zip_resumo(zip_path: str):
     with zipfile.ZipFile(zip_path, "r") as z:
         names = [n for n in z.namelist() if n.lower().endswith(".xml")]
         total_xml = len(names)
+
+        # Para ZIPs grandes, evitamos salvar listas de notas no Redis (fica pesado e pode falhar).
+        store_notes = total_xml <= 500
+        # Também reduzimos o limite de detalhes por grupo automaticamente
+        # (os totais continuam completos).
 
         for name in names:
             try:
@@ -456,7 +472,7 @@ def process_zip_resumo(zip_path: str):
                             cf = {"cfop": cfop, "v_total": 0.0, "notas": []}
                             g["cfops"][cfop] = cf
                         cf["v_total"] += v_total
-                        if len(cf["notas"]) < MAX_NOTAS_DETALHE_POR_GRUPO:
+                        if store_notes and len(cf["notas"]) < MAX_NOTAS_DETALHE_POR_GRUPO:
                             cf["notas"].append({**nota_info, "vProd_br": br_money(v_total)})
 
                     # itens table (agrega)
@@ -468,7 +484,7 @@ def process_zip_resumo(zip_path: str):
                             item_map[k] = ig
                         ig["qtd_itens"] += 1
                         ig["v_total"] += v_total
-                        if len(ig["notas"]) < MAX_NOTAS_DETALHE_POR_GRUPO:
+                        if store_notes and len(ig["notas"]) < MAX_NOTAS_DETALHE_POR_GRUPO:
                             ig["notas"].append({**nota_info, "vProd_br": br_money(v_total)})
 
                 # retenções/impostos (NFe)
@@ -485,7 +501,7 @@ def process_zip_resumo(zip_path: str):
                         impostos_map[tipo_label] = m
                     m["qtd_notas"] += 1
                     m["v_total"] += val
-                    if len(m["notas"]) < MAX_NOTAS_DETALHE_IMPOSTO:
+                    if store_notes and len(m["notas"]) < MAX_NOTAS_DETALHE_IMPOSTO:
                         m["notas"].append({
                             "nNF": nota_info["nNF"],
                             "cNF": nota_info["cNF"],
@@ -531,6 +547,13 @@ def process_zip_resumo(zip_path: str):
             ]
         })
 
+    # Limites de linhas para evitar JSON gigantes em ZIPs muito grandes
+    MAX_CCLASS_ROWS = 5000
+    MAX_ITEM_ROWS = 5000
+    # Se houver mais linhas que o limite, mantém as maiores (por valor)
+    if len(linhas) > MAX_CCLASS_ROWS:
+        linhas = sorted(linhas, key=lambda x: x["v_total"], reverse=True)[:MAX_CCLASS_ROWS]
+
     # ordena cfops internamente
     for l in linhas:
         l["cfops"].sort(key=lambda x: x["v_total"], reverse=True)
@@ -565,6 +588,10 @@ def process_zip_resumo(zip_path: str):
         i["pct"] = round(pct, 2)
         i["pct_br"] = br_pct(pct)
 
+    # Limita tabela de itens para evitar payload muito grande
+    if len(itens_linhas) > MAX_ITEM_ROWS:
+        itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)[:MAX_ITEM_ROWS]
+
     impostos_linhas = []
     total_impostos = 0.0
     for tipo, m in impostos_map.items():
@@ -582,6 +609,29 @@ def process_zip_resumo(zip_path: str):
         })
     impostos_linhas.sort(key=lambda x: x["v_total"], reverse=True)
 
+    # Choices para aba Lote (cClass e CFOP encontrados no resumo)
+    cclass_set = set()
+    cfop_set = set()
+    pairs = []
+    for l in linhas:
+        c = l.get("cClass")
+        if c: cclass_set.add(str(c))
+        for cf in (l.get("cfops") or []):
+            f = cf.get("cfop")
+            if f: cfop_set.add(str(f))
+            if c and f:
+                pairs.append({"cClass": str(c), "CFOP": str(f)})
+    # ordena e remove duplicados de pares
+    seen=set()
+    uniq_pairs=[]
+    for p in pairs:
+        k=(p["cClass"], p["CFOP"])
+        if k in seen: continue
+        seen.add(k)
+        uniq_pairs.append(p)
+    cclass_list = sorted(cclass_set)
+    cfop_list = sorted(cfop_set)
+
     return {
         "emitente_nome": emitente_nome or "",
         "emitente_cnpj": emitente_doc or "",
@@ -596,6 +646,7 @@ def process_zip_resumo(zip_path: str):
         "itens_linhas": itens_linhas,
         "impostos_linhas": impostos_linhas,
         "debug": {"total_xml": total_xml, "total_ok": total_ok, "total_falhas": total_falhas, "primeiro_erro": primeiro_erro},
+        "choices": {"cclass": cclass_list, "cfop": cfop_list, "pairs": uniq_pairs},
         "limits": {
             "max_notas_por_grupo": MAX_NOTAS_DETALHE_POR_GRUPO,
             "max_notas_imposto": MAX_NOTAS_DETALHE_IMPOSTO
@@ -689,6 +740,27 @@ def api_resumo_upload():
         return jsonify({"success": True, "session_id": session_id, "redirect": url_for("resumo_resultado_page")})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =========================================================
+# API - Resumo (choices p/ Lote)
+# =========================================================
+@app.route('/api/resumo/choices')
+def api_resumo_choices():
+    try:
+        session_id = request.args.get('session_id') or session.get('resumo_session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'session_id não encontrado'}), 400
+        raw = redis_get(f'resumo:{session_id}')
+        if not raw:
+            return jsonify({'success': False, 'error': 'Resumo não encontrado (faça o upload novamente)'}), 404
+        if isinstance(raw, bytes):
+            raw = raw.decode('utf-8', errors='replace')
+        data = __import__('json').loads(raw)
+        choices = (data or {}).get('choices') or {'cclass': [], 'cfop': [], 'pairs': []}
+        return jsonify({'success': True, 'session_id': session_id, 'choices': choices})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # =========================================================
