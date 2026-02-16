@@ -402,6 +402,23 @@ def _find_child(parent, tag_name):
             return child
     return None
 
+def _local_tag(parent, tag_name: str) -> str:
+    """Retorna o nome da tag respeitando namespace do pai (quando existir)."""
+    if parent is None or not isinstance(parent.tag, str):
+        return tag_name
+    if parent.tag.startswith("{"):
+        ns = parent.tag.split("}", 1)[0][1:]
+        return f"{{{ns}}}{tag_name}"
+    return tag_name
+
+def _upsert_child_text(parent, tag_name: str, text: str):
+    """Atualiza um filho direto por nome local ou cria a tag caso não exista."""
+    el = _find_child(parent, tag_name)
+    if el is None:
+        el = etree.SubElement(parent, _local_tag(parent, tag_name))
+    el.text = text
+    return el
+
 def _parse_regras(regras_texto: str):
     regras = {}
     for raw in (regras_texto or "").splitlines():
@@ -471,10 +488,25 @@ def _process_zip_lote_async(sid: str, zip_path: str, remover_desconto: bool, rem
                             cclass_el = _find_child(prod, "cClass")
                             cfop_el = _find_child(prod, "CFOP")
                             cclass = (cclass_el.text or "").strip() if cclass_el is not None else ""
+
+                            # Regra principal: cClass existente no XML -> CFOP alvo.
                             target_cfop = regras.get(cclass)
-                            if target_cfop and cfop_el is not None and (cfop_el.text or "").strip() != target_cfop:
-                                cfop_el.text = target_cfop
+
+                            # Caso não exista cClass no XML e haja somente uma regra,
+                            # usa essa regra como valor padrão para incluir cClass/CFOP.
+                            if not cclass and len(regras) == 1:
+                                default_cclass, default_cfop = next(iter(regras.items()))
+                                _upsert_child_text(prod, "cClass", default_cclass)
+                                cclass = default_cclass
+                                target_cfop = default_cfop
                                 changes_in_file += 1
+
+                            # Se houver CFOP alvo, altera quando existir e inclui quando faltar.
+                            if target_cfop:
+                                current_cfop = (cfop_el.text or "").strip() if cfop_el is not None else ""
+                                if current_cfop != target_cfop:
+                                    _upsert_child_text(prod, "CFOP", target_cfop)
+                                    changes_in_file += 1
 
                         if changes_in_file > 0:
                             changed_files += 1
