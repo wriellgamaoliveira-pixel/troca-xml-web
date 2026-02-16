@@ -1,0 +1,19 @@
+/* CSS específico do Resumo Resultado */
+.chart-wrap{
+  height: 360px;
+  width: 100%;
+}
+@media (max-width: 720px){
+  .chart-wrap{ height: 300px; }
+}
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  background:#fff;
+}

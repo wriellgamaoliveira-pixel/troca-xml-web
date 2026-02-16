@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Resumo Resultado - Troca XML{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Resumo (por cClass)</h1>
+<p class="page-subtitle">Gere um relatório consolidado com totais por cClass</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      {% if data.emitente_nome %}
+      <div>
+        <p class="kpi-label">Emitente</p>
+        <p class="kpi-value" style="font-size:16px;">{{ data.emitente_nome }}</p>
+        {% if data.emitente_cnpj %}<p class="kpi-sub">{{ data.emitente_cnpj }}</p>{% endif %}
+      </div>
+      {% endif %}
+      <div>
+        <p class="kpi-label">Total de Arquivos</p>
+        <p class="kpi-value">{{ data.total_arquivos }}</p>
+      </div>
+      <div style="grid-column: span 2;">
+        <p class="kpi-label">Valor Total</p>
+        <p class="kpi-value primary">{{ data.total_geral_br }}</p>
+      </div>
+    </div>
+
+    {% if data.debug %}
+    <div class="note">
+      <b>Diagnóstico:</b><br>
+      XMLs no ZIP: {{ data.debug.total_xml }} | OK: {{ data.debug.total_ok }} | Falhas: {{ data.debug.total_falhas }}
+      {% if data.debug.primeiro_erro %}
+      <div style="margin-top:6px;color:#b91c1c;">{{ data.debug.primeiro_erro }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Gráfico (Top 12 cClass)</h2></div>
+  <div class="card-content">
+    <div class="chart-wrap">
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;">
+        <h2 class="card-title" style="margin:0;">Tabela por cClass</h2>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="cclassExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="cclassCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="cclassFilter" placeholder="Filtrar por cClass ou descrição...">
+        </div>
+        <select class="select" id="cclassSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+          <option value="asc-valor">Menor valor primeiro</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>cClass</th>
+            <th>Descrição</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="cclassBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <h2 class="card-title" style="margin:0;">Tabela de Itens (Todos)</h2>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="itemsExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="itemsCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="itemsFilter" placeholder="Filtrar por código, descrição ou cClass...">
+        </div>
+        <select class="select" id="itemsSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+          <option value="asc-valor">Menor valor primeiro</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Item (cProd)</th>
+            <th>Descrição (xProd)</th>
+            <th>cClass</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
+<div class="card">
+  <div class="card-header">
+    <div class="controls">
+      <div>
+        <h2 class="card-title" style="margin:0;">Tabela de Impostos Retidos (vRetTribTot)</h2>
+        <div style="margin-top:6px;color:var(--muted);font-size:13px;">Total retido: {{ data.total_impostos_br }}</div>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="impExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="impFilter" placeholder="Filtrar por tipo de imposto...">
+        </div>
+        <select class="select" id="impSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Tipo de Imposto</th>
+            <th class="right">Qtd Notas</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="impBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  window.__RESUMO_DATA__ = {{ data|tojson }};
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/resumo.js') }}"></script>
+{% endblock %}

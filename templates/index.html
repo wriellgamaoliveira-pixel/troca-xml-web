@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Início - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Troca XML</h1>
+<p class="page-subtitle">Processamento de XMLs (NFCom e NFe) com resumo, lote e exportação.</p>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Atalhos</h2>
+  </div>
+  <div class="card-content" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;">
+    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('resumo_page') }}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="bar-chart-3"></i><b>Resumo</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Relatório por cClass/itens/impostos com filtros</div>
+    </a>
+    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('lote_page') }}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="archive"></i><b>Lote</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Envie ZIP, aplique regras e baixe ZIP</div>
+    </a>
+    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('csv_page') }}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="file-spreadsheet"></i><b>CSV</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Exportação rápida para planilha</div>
+    </a>
+  </div>
+</div>
+{% endblock %}

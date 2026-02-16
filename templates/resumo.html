@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Resumo - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Resumo (por cClass)</h1>
+<p class="page-subtitle">Gere um relatório consolidado com totais por cClass.</p>
+
+<div class="card">
+  <div class="card-content" style="max-width:780px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <i data-lucide="bar-chart-3"></i>
+      <b>Gerar Resumo</b>
+    </div>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">Envie um arquivo .zip contendo XMLs para análise</div>
+
+    <form id="uploadForm" style="display:grid;gap:12px;">
+      <input class="input" type="file" id="fileInput" accept=".zip" required>
+
+      <div id="progressContainer" class="hidden">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="color:var(--muted);font-size:13px;">Processando XMLs...</span>
+          <span id="progressPercent" style="font-weight:800;">0%</span>
+        </div>
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <div style="margin-top:8px;color:var(--muted);font-size:12px;">
+          <span id="progressInfo">Aguardando...</span>
+        </div>
+      </div>
+
+      <button class="btn" type="submit"><i data-lucide="upload"></i> Processar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const progressContainer = document.getElementById('progressContainer');
+  const progressFill = document.getElementById('progressFill');
+  const progressPercent = document.getElementById('progressPercent');
+  const progressInfo = document.getElementById('progressInfo');
+
+  function setProgress(p, info){
+    const v = Math.max(0, Math.min(100, Number(p||0)));
+    progressFill.style.width = v + '%';
+    progressPercent.textContent = v + '%';
+    if(info) progressInfo.textContent = info;
+  }
+
+  async function pollStatus(sessionId){
+    let tries = 0;
+    const timer = setInterval(async ()=>{
+      tries += 1;
+      try{
+        const r = await fetch(`/api/resumo/status?session_id=${encodeURIComponent(sessionId)}`);
+        const j = await r.json();
+        if(!j.success){
+          clearInterval(timer);
+          alert(j.error || 'Erro ao processar');
+          return;
+        }
+        const info = (j.total ? `${j.processed||0}/${j.total} XMLs` : (j.status || 'processando...'));
+        setProgress(j.progress || 0, info);
+
+        if(j.done){
+          clearInterval(timer);
+          if(j.status === 'error'){
+            alert(j.error || 'Erro ao processar');
+            return;
+          }
+          window.location.href = j.redirect || '/resumo/resultado';
+        }
+      }catch(e){
+        if(tries > 5){
+          clearInterval(timer);
+          alert('Erro ao consultar status: ' + e.message);
+        }
+      }
+    }, 800);
+  }
+
+  document.getElementById('uploadForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const file = document.getElementById('fileInput').files[0];
+    if(!file) return alert('Selecione um ZIP.');
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    progressContainer.classList.remove('hidden');
+    setProgress(1, 'Enviando...');
+
+    try{
+      const r = await fetch('/api/resumo/upload', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success){
+        alert((j && j.error) ? j.error : 'Erro ao processar');
+        return;
+      }
+      setProgress(2, 'Iniciando processamento...');
+      pollStatus(j.session_id);
+    }catch(err){
+      alert('Erro: ' + err.message);
+    }
+  });
+</script>
+{% endblock %}
