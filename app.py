@@ -1,7 +1,9 @@
-from flask import Flask, render_template, request, jsonify, send_file, session, url_for
+from flask import Flask, render_template, request, jsonify, send_file, session, url_for, Response
 import os
 import uuid
 import json
+import csv
+from collections import defaultdict
 from datetime import datetime
 import zipfile
 import io
@@ -103,6 +105,21 @@ def safe_float(x):
         return float(str(x).strip())
     except Exception:
         return 0.0
+
+def validar_integridade(dados):
+    total_processadas = int(((dados or {}).get("debug") or {}).get("total_notas_processadas") or 0)
+    total_resumo = sum(
+        len(cfop.get("notas") or [])
+        for linha in (dados or {}).get("linhas") or []
+        for cfop in linha.get("cfops") or []
+    )
+
+    if total_processadas != total_resumo:
+        print("⚠ ERRO: Divergência de notas!")
+    else:
+        print("✔ Integridade OK")
+
+    return total_processadas, total_resumo
 
 # =========================================================
 # XML robust (NFe / NFCom) via local-name
@@ -297,7 +314,40 @@ def resumo_resultado_page():
     if not data:
         # fallback: exemplo
         data = gerar_dados_exemplo()
+    validar_integridade(data)
     return render_template("resumo_resultado.html", data=data)
+
+@app.route("/resumo/csv")
+def resumo_csv_page():
+    sid = session.get("resumo_session_id")
+    data = r_get_json(f"resumo:data:{sid}") if sid else None
+    if not data:
+        return jsonify({"success": False, "error": "Resumo não encontrado para exportação"}), 404
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["cClass", "CFOP", "nNF", "Emitente", "Destinatário", "Data Emissão", "Valor"])
+
+    for linha in data.get("linhas") or []:
+        cclass = linha.get("cClass") or ""
+        for cfop_data in linha.get("cfops") or []:
+            cfop = cfop_data.get("cfop") or ""
+            for nota in cfop_data.get("notas") or []:
+                writer.writerow([
+                    cclass,
+                    cfop,
+                    nota.get("nNF") or "",
+                    nota.get("xNome") or "",
+                    nota.get("xContato") or "",
+                    nota.get("dhEmi_fmt") or "",
+                    nota.get("valor") or 0,
+                ])
+
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=resumo.csv"},
+    )
 
 @app.route("/csv")
 def csv_page():
@@ -557,10 +607,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
     Processa o ZIP em background e grava:
       - resumo:status:<sid> (progresso/estado)
       - resumo:data:<sid>   (payload compacto para o front)
-    Importante: para ZIPs grandes, o payload NÃO pode explodir (memória/Redis).
-    Por isso, guardamos apenas AMOSTRAS de notas relacionadas (limitadas).
+    Importante: o agrupamento de notas por cClass/CFOP precisa ser completo, sem perda de registros.
     """
-    NOTES_LIMIT = 6  # quantidade máxima de notas relacionadas por grupo
     try:
         _set_status(
             sid,
@@ -576,8 +624,6 @@ def _process_zip_resumo(sid: str, zip_path: str):
         def add_note(lst, note):
             if lst is None:
                 return
-            if len(lst) >= NOTES_LIMIT:
-                return
             lst.append(note)
 
         with zipfile.ZipFile(zip_path, "r") as z:
@@ -587,7 +633,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 raise Exception("Nenhum XML encontrado no ZIP")
 
             # Agregadores
-            by_cclass = {}  # cClass -> {desc,qtd_itens,v_total, cfops{cfop->v}, cfop_notes{cfop->[]}}
+            # cClass -> {desc,qtd_itens,v_total, cfops{cfop->{v_total,notas[]}}}
+            by_cclass = {}
             by_item = {}    # (cProd,cClass,desc) -> {item,desc,cClass,qtd_itens,v_total, notas:[]}
             impostos = {"PIS Ret.": 0.0, "COFINS Ret.": 0.0, "CSLL Ret.": 0.0, "IRRF Ret.": 0.0}
             impostos_notas = {"PIS Ret.": [], "COFINS Ret.": [], "CSLL Ret.": [], "IRRF Ret.": []}
@@ -595,6 +642,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
             emit_nome = None
             emit_cnpj = None
             total_geral = 0.0
+            total_processadas = 0
             ok = 0
             falhas = 0
             primeiro_erro = None
@@ -639,8 +687,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                                     "desc": xProd or "",
                                     "qtd_itens": 0,
                                     "v_total": 0.0,
-                                    "cfops": {},
-                                    "cfop_notes": {},  # cfop -> [notas]
+                                    "cfops": defaultdict(lambda: {"v_total": 0.0, "notas": []}),
                                 },
                             )
                             if not rec["desc"] and xProd:
@@ -649,9 +696,10 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             rec["v_total"] += v
 
                             if cfop:
-                                rec["cfops"][cfop] = rec["cfops"].get(cfop, 0.0) + v
-                                notas_lst = rec["cfop_notes"].setdefault(cfop, [])
-                                add_note(notas_lst, {**nota_base, "valor": v, "valor_br": br_money(v)})
+                                cfop_rec = rec["cfops"][cfop]
+                                cfop_rec["v_total"] += v
+                                cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v)})
+                                total_processadas += 1
 
                         # --- Agrupa por item (cProd)
                         if cProd:
@@ -705,13 +753,13 @@ def _process_zip_resumo(sid: str, zip_path: str):
             linhas = []
             for c, rec in by_cclass.items():
                 cfops_list = []
-                for cfop, v in rec["cfops"].items():
+                for cfop, cfop_data in rec["cfops"].items():
                     cfops_list.append(
                         {
                             "cfop": cfop,
-                            "v_total": v,
-                            "v_total_br": br_money(v),
-                            "notas": rec["cfop_notes"].get(cfop, [])[:NOTES_LIMIT],
+                            "v_total": cfop_data["v_total"],
+                            "v_total_br": br_money(cfop_data["v_total"]),
+                            "notas": cfop_data["notas"],
                         }
                     )
                 linhas.append(
@@ -757,7 +805,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         "v_total_br": br_money(v),
                         "pct": pct,
                         "pct_br": f"{pct:.2f}%".replace(".", ","),
-                        "notas": impostos_notas.get(tipo, [])[:NOTES_LIMIT],
+                        "notas": impostos_notas.get(tipo, []),
                     }
                 )
 
@@ -774,8 +822,18 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 "linhas": sorted(linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT],
                 "itens_linhas": itens_linhas,
                 "impostos_linhas": impostos_linhas,
-                "debug": {"total_xml": len(names), "total_ok": ok, "total_falhas": falhas, "primeiro_erro": primeiro_erro},
+                "debug": {
+                    "total_xml": len(names),
+                    "total_ok": ok,
+                    "total_falhas": falhas,
+                    "primeiro_erro": primeiro_erro,
+                    "total_notas_processadas": total_processadas,
+                },
             }
+
+            total_processadas_val, total_no_resumo = validar_integridade(data)
+            print("Total notas processadas:", total_processadas_val)
+            print("Total notas no resumo:", total_no_resumo)
 
             r_setex(f"resumo:data:{sid}", SUMMARY_TTL, data)
             _set_status(sid, status="done", progress=100, done=True, finished_at=datetime.now().isoformat(), error=None)
@@ -887,7 +945,7 @@ def gerar_dados_exemplo():
         "linhas": [],
         "itens_linhas": [],
         "impostos_linhas": [],
-        "debug": {"total_xml": 3, "total_ok": 3, "total_falhas": 0, "primeiro_erro": None},
+        "debug": {"total_xml": 3, "total_ok": 3, "total_falhas": 0, "primeiro_erro": None, "total_notas_processadas": 0},
     }
 
 if __name__ == "__main__":

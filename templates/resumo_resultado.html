@@ -5,8 +5,20 @@
 {% endblock %}
 
 {% block content %}
-<h1 class="page-title">Resumo (por cClass)</h1>
-<p class="page-subtitle">Gere um relatório consolidado com totais por cClass</p>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  <div>
+    <h1 class="page-title">Resumo (por cClass)</h1>
+    <p class="page-subtitle">Gere um relatório consolidado com totais por cClass</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <a href="/resumo/csv" class="btn btn-outline btn-sm">
+      <i data-lucide="file-spreadsheet"></i> Gerar CSV
+    </a>
+    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">
+      <i data-lucide="printer"></i> Imprimir
+    </button>
+  </div>
+</div>
 
 <div class="card">
   <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
@@ -41,7 +53,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card chart-container">
   <div class="card-header"><h2 class="card-title">Gráfico (Top 12 cClass)</h2></div>
   <div class="card-content">
     <div class="chart-wrap">

@@ -17,3 +17,14 @@
   color: var(--muted);
   background:#fff;
 }
+
+
+@media print {
+  nav, .btn, .chart-container {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
+}
