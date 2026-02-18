@@ -136,129 +136,310 @@ def x1(node, path):
         return (v.text or "").strip()
     return str(v).strip()
 
+def get_text(root, path, ns):
+    if root is None:
+        return "0.00"
+    try:
+        el = root.find(path, ns)
+    except Exception:
+        el = None
+    if el is not None and el.text is not None:
+        return el.text
+
+    # fallback sem namespace para XMLs antigos/fora do padrão
+    try:
+        plain_path = path.replace("nfe:", "")
+        el_plain = root.find(plain_path)
+        if el_plain is not None and el_plain.text is not None:
+            return el_plain.text
+    except Exception:
+        pass
+    return "0.00"
+
+
+def _icms_vals(imposto, ns):
+    if imposto is None:
+        return "0", "0", "0"
+
+    icms_group = imposto.find('.//nfe:ICMS', ns)
+    if icms_group is None:
+        icms_group = imposto.find('.//ICMS')
+    if icms_group is None:
+        return "0", "0", "0"
+
+    icms_node = None
+    for child in icms_group:
+        if isinstance(child.tag, str):
+            icms_node = child
+            break
+    if icms_node is None:
+        return "0", "0", "0"
+
+    vbc = get_text(icms_node, './/nfe:vBC', ns)
+    picms = get_text(icms_node, './/nfe:pICMS', ns)
+    vicms = get_text(icms_node, './/nfe:vICMS', ns)
+    return vbc, picms, vicms
+
+
 def parse_nfcom_xml(xml_bytes: bytes):
     root = etree.fromstring(xml_bytes)
-    inf = root.xpath("//*[local-name()='infNFCom']")[0] if root.xpath("//*[local-name()='infNFCom']") else root
+    ns_uri = root.tag.split('}')[0].strip('{') if '}' in root.tag else ''
+    ns = {'nfe': ns_uri} if ns_uri else {}
 
-    emit = inf.xpath(".//*[local-name()='emit']")[0] if inf.xpath(".//*[local-name()='emit']") else None
-    dest = inf.xpath(".//*[local-name()='dest']")[0] if inf.xpath(".//*[local-name()='dest']") else None
+    inf = root.find('.//nfe:infNFCom', ns) if ns else root.find('.//infNFCom')
+    if inf is None:
+        inf = root
 
-    nNF = x1(inf, ".//*[local-name()='nNF']/text()")
-    serie = x1(inf, ".//*[local-name()='serie']/text()")
-    cNF = x1(inf, ".//*[local-name()='cNF']/text()")
-    dhEmi = x1(inf, ".//*[local-name()='dhEmi']/text()") or x1(inf, ".//*[local-name()='dEmi']/text()")
+    emit = inf.find('.//nfe:emit', ns) if ns else inf.find('.//emit')
+    dest = inf.find('.//nfe:dest', ns) if ns else inf.find('.//dest')
 
-    emit_nome = x1(emit, ".//*[local-name()='xNome']/text()") if emit is not None else None
-    emit_doc = x1(emit, ".//*[local-name()='CNPJ']/text()") if emit is not None else None
+    nNF = get_text(inf, './/nfe:nNF', ns)
+    serie = get_text(inf, './/nfe:serie', ns)
+    cNF = get_text(inf, './/nfe:cNF', ns)
+    dhEmi = get_text(inf, './/nfe:dhEmi', ns)
+    if dhEmi == '0.00':
+        dhEmi = get_text(inf, './/nfe:dEmi', ns)
 
-    dest_nome = x1(dest, ".//*[local-name()='xNome']/text()") if dest is not None else None
-    dest_doc = x1(dest, ".//*[local-name()='CNPJ']/text()") if dest is not None else (x1(dest, ".//*[local-name()='CPF']/text()") if dest is not None else None)
+    emit_nome = get_text(emit, './/nfe:xNome', ns) if emit is not None else None
+    emit_doc = get_text(emit, './/nfe:CNPJ', ns) if emit is not None else None
+    if emit_doc == '0.00':
+        emit_doc = get_text(emit, './/nfe:CPF', ns) if emit is not None else None
+
+    dest_nome = get_text(dest, './/nfe:xNome', ns) if dest is not None else None
+    dest_doc = get_text(dest, './/nfe:CNPJ', ns) if dest is not None else None
+    if dest_doc in (None, '0.00'):
+        dest_doc = get_text(dest, './/nfe:CPF', ns) if dest is not None else None
 
     # Totais e retenções
-    vProd = safe_float(x1(inf, ".//*[local-name()='vProd']/text()"))
-    vNF = safe_float(x1(inf, ".//*[local-name()='vNF']/text()"))  # total a pagar em alguns layouts
-    total_pagar = vNF if vNF else vProd
+    valor_total = safe_float(get_text(inf, './/nfe:vNF', ns))
+    vProd = safe_float(get_text(inf, './/nfe:vProd', ns))
 
-    # vRetTribTot
-    ret = inf.xpath(".//*[local-name()='vRetTribTot']")[0] if inf.xpath(".//*[local-name()='vRetTribTot']") else None
-    vRetPIS = safe_float(x1(ret, ".//*[local-name()='vRetPIS']/text()")) if ret is not None else 0.0
-    vRetCofins = safe_float(x1(ret, ".//*[local-name()='vRetCofins']/text()")) if ret is not None else 0.0
-    vRetCSLL = safe_float(x1(ret, ".//*[local-name()='vRetCSLL']/text()")) if ret is not None else 0.0
-    vIRRF = safe_float(x1(ret, ".//*[local-name()='vIRRF']/text()")) if ret is not None else 0.0
+    ret = inf.find('.//nfe:vRetTribTot', ns) if ns else inf.find('.//vRetTribTot')
+    ret_pis = safe_float(get_text(ret, './/nfe:vRetPIS', ns)) if ret is not None else 0.0
+    ret_cofins = safe_float(get_text(ret, './/nfe:vRetCofins', ns)) if ret is not None else 0.0
+    ret_csll = safe_float(get_text(ret, './/nfe:vRetCSLL', ns)) if ret is not None else 0.0
+    ret_irrf = safe_float(get_text(ret, './/nfe:vIRRF', ns)) if ret is not None else 0.0
 
     itens = []
-    for det in inf.xpath(".//*[local-name()='det']"):
-        prod = det.xpath(".//*[local-name()='prod']")[0] if det.xpath(".//*[local-name()='prod']") else det
-        cClass = x1(prod, ".//*[local-name()='cClass']/text()") or ""
-        cfop = x1(prod, ".//*[local-name()='CFOP']/text()") or ""
-        cProd = x1(prod, ".//*[local-name()='cProd']/text()") or ""
-        xProd = x1(prod, ".//*[local-name()='xProd']/text()") or ""
-        qCom = safe_float(x1(prod, ".//*[local-name()='qCom']/text()"))
-        vProd_i = safe_float(x1(prod, ".//*[local-name()='vProd']/text()"))
+    dets = inf.findall('.//nfe:det', ns) if ns else inf.findall('.//det')
+    for det in dets:
+        prod = det.find('.//nfe:prod', ns) if ns else det.find('.//prod')
+        imposto = det.find('.//nfe:imposto', ns) if ns else det.find('.//imposto')
+        pis = imposto.find('.//nfe:PIS', ns) if imposto is not None and ns else (imposto.find('.//PIS') if imposto is not None else None)
+        cofins = imposto.find('.//nfe:COFINS', ns) if imposto is not None and ns else (imposto.find('.//COFINS') if imposto is not None else None)
+
+        cClass = get_text(prod, './/nfe:cClass', ns) if prod is not None else ''
+        cfop = get_text(prod, './/nfe:CFOP', ns) if prod is not None else ''
+        cProd = get_text(prod, './/nfe:cProd', ns) if prod is not None else ''
+        xProd = get_text(prod, './/nfe:xProd', ns) if prod is not None else ''
+        uMed = get_text(prod, './/nfe:uMed', ns) if prod is not None else '0'
+        qFaturada = get_text(prod, './/nfe:qFaturada', ns) if prod is not None else '0'
+        if qFaturada == '0.00':
+            qFaturada = get_text(prod, './/nfe:qCom', ns) if prod is not None else '0'
+
+        v_un = safe_float(get_text(prod, './/nfe:vUnCom', ns)) if prod is not None else 0.0
+        v_prod = safe_float(get_text(prod, './/nfe:vProd', ns)) if prod is not None else 0.0
+        vpis = get_text(pis, './/nfe:vPIS', ns) if pis is not None else '0'
+        vcofins = get_text(cofins, './/nfe:vCOFINS', ns) if cofins is not None else '0'
+        vbc, picms, vicms = _icms_vals(imposto, ns)
+
         itens.append({
-            "cClass": cClass,
-            "CFOP": cfop,
-            "cProd": cProd,
-            "xProd": xProd,
-            "qCom": qCom,
-            "vProd": vProd_i,
-            "vProd_br": br_money(vProd_i),
+            'cClass': '' if cClass == '0.00' else cClass,
+            'CFOP': '' if cfop == '0.00' else cfop,
+            'cProd': '' if cProd == '0.00' else cProd,
+            'xProd': '' if xProd == '0.00' else xProd,
+            'desc': '' if xProd == '0.00' else xProd,
+            'uMed': '' if uMed == '0.00' else uMed,
+            'un': '' if uMed == '0.00' else uMed,
+            'qFaturada': qFaturada,
+            'qCom': safe_float(qFaturada),
+            'qtd': qFaturada,
+            'vProd': v_prod,
+            'vProd_br': br_money(v_prod),
+            'v_total': br_money(v_prod),
+            'v_unit': br_money(v_un),
+            'vPIS': vpis,
+            'vCOFINS': vcofins,
+            'vBC': vbc,
+            'pICMS': picms,
+            'vICMS': vicms,
+            'pis_cofins': f"{vpis}/{vcofins}",
+            'bc_icms': vbc,
+            'aliq_icms': picms,
+            'icms': vicms,
         })
 
+    print('IRRF:', ret_irrf)
+    print('Valor Total (vNF):', valor_total)
+    print('Itens extraídos:', len(itens))
+
     return {
-        "tipo": "NFCom",
-        "nNF": nNF,
-        "serie": serie,
-        "cNF": cNF,
-        "dhEmi": dhEmi,
-        "dhEmi_fmt": br_date(dhEmi or ""),
-        "emitente": {"xNome": emit_nome, "CNPJ": emit_doc},
-        "destinatario": {"xNome": dest_nome, "doc": dest_doc},
-        "itens": itens,
-        "totais": {
-            "vProd": vProd,
-            "vProd_br": br_money(vProd),
-            "vPagar": total_pagar,
-            "vPagar_br": br_money(total_pagar),
+        'tipo': 'NFCom',
+        'nNF': nNF if nNF != '0.00' else None,
+        'serie': serie if serie != '0.00' else None,
+        'cNF': cNF if cNF != '0.00' else None,
+        'dhEmi': dhEmi if dhEmi != '0.00' else None,
+        'dhEmi_fmt': br_date(dhEmi if dhEmi != '0.00' else ''),
+        'emitente': {'xNome': None if emit_nome == '0.00' else emit_nome, 'CNPJ': None if emit_doc == '0.00' else emit_doc},
+        'destinatario': {'xNome': None if dest_nome == '0.00' else dest_nome, 'doc': None if dest_doc == '0.00' else dest_doc},
+        'itens': itens,
+        'valor_total': valor_total,
+        'totais': {
+            'vNF_num': valor_total,
+            'vNF': br_money(valor_total),
+            'vProd': vProd,
+            'vProd_br': br_money(vProd),
+            'vPagar': valor_total,
+            'vPagar_br': br_money(valor_total),
         },
-        "retencoes": {
-            "vRetPIS": vRetPIS, "vRetPIS_br": br_money(vRetPIS),
-            "vRetCofins": vRetCofins, "vRetCofins_br": br_money(vRetCofins),
-            "vRetCSLL": vRetCSLL, "vRetCSLL_br": br_money(vRetCSLL),
-            "vIRRF": vIRRF, "vIRRF_br": br_money(vIRRF),
-            "total": (vRetPIS + vRetCofins + vRetCSLL + vIRRF),
-            "total_br": br_money(vRetPIS + vRetCofins + vRetCSLL + vIRRF),
+        'ret_pis': ret_pis,
+        'ret_cofins': ret_cofins,
+        'ret_csll': ret_csll,
+        'ret_irrf': ret_irrf,
+        'retencoes': {
+            'pis': br_money(ret_pis),
+            'cofins': br_money(ret_cofins),
+            'csll': br_money(ret_csll),
+            'irrf': br_money(ret_irrf),
+            'vRetPIS': ret_pis,
+            'vRetPIS_br': br_money(ret_pis),
+            'vRetCofins': ret_cofins,
+            'vRetCofins_br': br_money(ret_cofins),
+            'vRetCSLL': ret_csll,
+            'vRetCSLL_br': br_money(ret_csll),
+            'vIRRF': ret_irrf,
+            'vIRRF_br': br_money(ret_irrf),
+            'total': (ret_pis + ret_cofins + ret_csll + ret_irrf),
+            'total_br': br_money(ret_pis + ret_cofins + ret_csll + ret_irrf),
         }
     }
 
 def parse_nfe_xml(xml_bytes: bytes):
     root = etree.fromstring(xml_bytes)
-    inf = root.xpath("//*[local-name()='infNFe']")[0] if root.xpath("//*[local-name()='infNFe']") else root
+    ns_uri = root.tag.split('}')[0].strip('{') if '}' in root.tag else ''
+    ns = {'nfe': ns_uri} if ns_uri else {}
 
-    emit = inf.xpath(".//*[local-name()='emit']")[0] if inf.xpath(".//*[local-name()='emit']") else None
-    dest = inf.xpath(".//*[local-name()='dest']")[0] if inf.xpath(".//*[local-name()='dest']") else None
+    inf = root.find('.//nfe:infNFe', ns) if ns else root.find('.//infNFe')
+    if inf is None:
+        inf = root
 
-    nNF = x1(inf, ".//*[local-name()='nNF']/text()")
-    serie = x1(inf, ".//*[local-name()='serie']/text()")
-    cNF = x1(inf, ".//*[local-name()='cNF']/text()")
-    dhEmi = x1(inf, ".//*[local-name()='dhEmi']/text()") or x1(inf, ".//*[local-name()='dEmi']/text()")
+    emit = inf.find('.//nfe:emit', ns) if ns else inf.find('.//emit')
+    dest = inf.find('.//nfe:dest', ns) if ns else inf.find('.//dest')
 
-    emit_nome = x1(emit, ".//*[local-name()='xNome']/text()") if emit is not None else None
-    emit_doc = x1(emit, ".//*[local-name()='CNPJ']/text()") if emit is not None else None
+    nNF = get_text(inf, './/nfe:nNF', ns)
+    serie = get_text(inf, './/nfe:serie', ns)
+    cNF = get_text(inf, './/nfe:cNF', ns)
+    dhEmi = get_text(inf, './/nfe:dhEmi', ns)
+    if dhEmi == '0.00':
+        dhEmi = get_text(inf, './/nfe:dEmi', ns)
 
-    dest_nome = x1(dest, ".//*[local-name()='xNome']/text()") if dest is not None else None
-    dest_doc = x1(dest, ".//*[local-name()='CNPJ']/text()") if dest is not None else (x1(dest, ".//*[local-name()='CPF']/text()") if dest is not None else None)
+    emit_nome = get_text(emit, './/nfe:xNome', ns) if emit is not None else None
+    emit_doc = get_text(emit, './/nfe:CNPJ', ns) if emit is not None else None
+    if emit_doc == '0.00':
+        emit_doc = get_text(emit, './/nfe:CPF', ns) if emit is not None else None
+
+    dest_nome = get_text(dest, './/nfe:xNome', ns) if dest is not None else None
+    dest_doc = get_text(dest, './/nfe:CNPJ', ns) if dest is not None else None
+    if dest_doc in (None, '0.00'):
+        dest_doc = get_text(dest, './/nfe:CPF', ns) if dest is not None else None
+
+    valor_total = safe_float(get_text(inf, './/nfe:vNF', ns))
+
+    ret = inf.find('.//nfe:vRetTribTot', ns) if ns else inf.find('.//vRetTribTot')
+    ret_pis = safe_float(get_text(ret, './/nfe:vRetPIS', ns)) if ret is not None else 0.0
+    ret_cofins = safe_float(get_text(ret, './/nfe:vRetCofins', ns)) if ret is not None else 0.0
+    ret_csll = safe_float(get_text(ret, './/nfe:vRetCSLL', ns)) if ret is not None else 0.0
+    ret_irrf = safe_float(get_text(ret, './/nfe:vIRRF', ns)) if ret is not None else 0.0
 
     itens = []
     total_vprod = 0.0
-    for det in inf.xpath(".//*[local-name()='det']"):
-        prod = det.xpath(".//*[local-name()='prod']")[0] if det.xpath(".//*[local-name()='prod']") else det
-        cfop = x1(prod, ".//*[local-name()='CFOP']/text()") or ""
-        cProd = x1(prod, ".//*[local-name()='cProd']/text()") or ""
-        xProd = x1(prod, ".//*[local-name()='xProd']/text()") or ""
-        qCom = safe_float(x1(prod, ".//*[local-name()='qCom']/text()"))
-        vProd_i = safe_float(x1(prod, ".//*[local-name()='vProd']/text()"))
-        total_vprod += vProd_i
+    dets = inf.findall('.//nfe:det', ns) if ns else inf.findall('.//det')
+    for det in dets:
+        prod = det.find('.//nfe:prod', ns) if ns else det.find('.//prod')
+        imposto = det.find('.//nfe:imposto', ns) if ns else det.find('.//imposto')
+        pis = imposto.find('.//nfe:PIS', ns) if imposto is not None and ns else (imposto.find('.//PIS') if imposto is not None else None)
+        cofins = imposto.find('.//nfe:COFINS', ns) if imposto is not None and ns else (imposto.find('.//COFINS') if imposto is not None else None)
+
+        cClass = get_text(prod, './/nfe:cClass', ns) if prod is not None else ''
+        cfop = get_text(prod, './/nfe:CFOP', ns) if prod is not None else ''
+        cProd = get_text(prod, './/nfe:cProd', ns) if prod is not None else ''
+        xProd = get_text(prod, './/nfe:xProd', ns) if prod is not None else ''
+        uMed = get_text(prod, './/nfe:uMed', ns) if prod is not None else '0'
+        qFaturada = get_text(prod, './/nfe:qFaturada', ns) if prod is not None else '0'
+        if qFaturada == '0.00':
+            qFaturada = get_text(prod, './/nfe:qCom', ns) if prod is not None else '0'
+
+        v_un = safe_float(get_text(prod, './/nfe:vUnCom', ns)) if prod is not None else 0.0
+        v_prod = safe_float(get_text(prod, './/nfe:vProd', ns)) if prod is not None else 0.0
+        total_vprod += v_prod
+
+        vpis = get_text(pis, './/nfe:vPIS', ns) if pis is not None else '0'
+        vcofins = get_text(cofins, './/nfe:vCOFINS', ns) if cofins is not None else '0'
+        vbc, picms, vicms = _icms_vals(imposto, ns)
+
         itens.append({
-            "CFOP": cfop,
-            "cProd": cProd,
-            "xProd": xProd,
-            "qCom": qCom,
-            "vProd": vProd_i,
-            "vProd_br": br_money(vProd_i),
+            'cClass': '' if cClass == '0.00' else cClass,
+            'CFOP': '' if cfop == '0.00' else cfop,
+            'cProd': '' if cProd == '0.00' else cProd,
+            'xProd': '' if xProd == '0.00' else xProd,
+            'desc': '' if xProd == '0.00' else xProd,
+            'uMed': '' if uMed == '0.00' else uMed,
+            'un': '' if uMed == '0.00' else uMed,
+            'qFaturada': qFaturada,
+            'qCom': safe_float(qFaturada),
+            'qtd': qFaturada,
+            'vProd': v_prod,
+            'vProd_br': br_money(v_prod),
+            'v_total': br_money(v_prod),
+            'v_unit': br_money(v_un),
+            'vPIS': vpis,
+            'vCOFINS': vcofins,
+            'vBC': vbc,
+            'pICMS': picms,
+            'vICMS': vicms,
+            'pis_cofins': f"{vpis}/{vcofins}",
+            'bc_icms': vbc,
+            'aliq_icms': picms,
+            'icms': vicms,
         })
 
+    print('IRRF:', ret_irrf)
+    print('Valor Total (vNF):', valor_total)
+    print('Itens extraídos:', len(itens))
+
     return {
-        "tipo": "NFe",
-        "nNF": nNF,
-        "serie": serie,
-        "cNF": cNF,
-        "dhEmi": dhEmi,
-        "dhEmi_fmt": br_date(dhEmi or ""),
-        "emitente": {"xNome": emit_nome, "CNPJ": emit_doc},
-        "destinatario": {"xNome": dest_nome, "doc": dest_doc},
-        "itens": itens,
-        "totais": {"vProd": total_vprod, "vProd_br": br_money(total_vprod)}
+        'tipo': 'NFe',
+        'nNF': nNF if nNF != '0.00' else None,
+        'serie': serie if serie != '0.00' else None,
+        'cNF': cNF if cNF != '0.00' else None,
+        'dhEmi': dhEmi if dhEmi != '0.00' else None,
+        'dhEmi_fmt': br_date(dhEmi if dhEmi != '0.00' else ''),
+        'emitente': {'xNome': None if emit_nome == '0.00' else emit_nome, 'CNPJ': None if emit_doc == '0.00' else emit_doc},
+        'destinatario': {'xNome': None if dest_nome == '0.00' else dest_nome, 'doc': None if dest_doc == '0.00' else dest_doc},
+        'itens': itens,
+        'valor_total': valor_total,
+        'totais': {
+            'vNF_num': valor_total,
+            'vNF': br_money(valor_total),
+            'vProd': total_vprod,
+            'vProd_br': br_money(total_vprod),
+        },
+        'ret_pis': ret_pis,
+        'ret_cofins': ret_cofins,
+        'ret_csll': ret_csll,
+        'ret_irrf': ret_irrf,
+        'retencoes': {
+            'pis': br_money(ret_pis),
+            'cofins': br_money(ret_cofins),
+            'csll': br_money(ret_csll),
+            'irrf': br_money(ret_irrf),
+            'vRetPIS': ret_pis,
+            'vRetCofins': ret_cofins,
+            'vRetCSLL': ret_csll,
+            'vIRRF': ret_irrf,
+            'total': (ret_pis + ret_cofins + ret_csll + ret_irrf),
+            'total_br': br_money(ret_pis + ret_cofins + ret_csll + ret_irrf),
+        }
     }
 
 def parse_xml_any(xml_bytes: bytes):
