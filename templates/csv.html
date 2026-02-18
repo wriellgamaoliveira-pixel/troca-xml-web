@@ -1,50 +1,67 @@
 {% extends "base.html" %}
-{% block title %}CSV - Troca XML{% endblock %}
+{% block title %}Lote por Descrição - Troca XML{% endblock %}
 
 {% block content %}
-<h1 class="page-title">CSV</h1>
-<p class="page-subtitle">Envie um ZIP com XMLs e gere um CSV simples.</p>
+<h1 class="page-title">Lote por Descrição</h1>
+<p class="page-subtitle">Envie um ZIP com XMLs, aplique regras por descrição do produto e baixe o ZIP processado.</p>
 
 <div class="card">
-  <div class="card-content" style="display:grid;gap:12px;max-width:720px;">
-    <form id="csvForm" style="display:grid;gap:12px;">
+  <div class="card-content">
+    <form id="csvForm" style="display:grid;gap:12px;max-width:720px;">
       <input class="input" type="file" id="zipCsv" name="zip_xmls" accept=".zip" required>
 
-      <input class="input" type="text" id="campos" placeholder="Campos (opcional, separados por ;). Ex: arquivo;tipo;nNF;dhEmi;emitente_nome">
+      <textarea class="input" id="regras" rows="8" placeholder="Regras (uma por linha): descricao;cClass\nEx:\nGOV SCI 10MBPS;0600601\nINTERNET DEDICADA;0700707" required></textarea>
 
-      <button class="btn" type="submit"><i data-lucide="file-down"></i> Gerar CSV</button>
+      <button class="btn" type="submit" id="btnProcessar"><i data-lucide="wand-2"></i> Processar</button>
     </form>
-    <div class="note">Se “Campos” estiver vazio, exporta um conjunto padrão.</div>
+
+    <div id="csvOut" class="note" style="display:none; margin-top:12px;">
+      <div id="csvResumo" style="margin-bottom:8px;"></div>
+      <a class="btn btn-outline" id="btnDownload" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
+    </div>
   </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-  document.getElementById('csvForm').addEventListener('submit', async (e)=>{
+  const form = document.getElementById('csvForm');
+  const out = document.getElementById('csvOut');
+  const resumo = document.getElementById('csvResumo');
+  const btnDownload = document.getElementById('btnDownload');
+  const btnProcessar = document.getElementById('btnProcessar');
+
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const f = document.getElementById('zipCsv').files[0];
     if(!f) return alert('Selecione um ZIP.');
 
+    const regras = (document.getElementById('regras').value || '').trim();
+    if(!regras) return alert('Informe ao menos uma regra no formato descricao;cClass');
+
+    out.style.display = 'none';
+    btnProcessar.disabled = true;
+
     const fd = new FormData();
     fd.append('zip_xmls', f);
-    fd.append('campos', document.getElementById('campos').value || '');
+    fd.append('regras_descricao_cclass', regras);
 
-    const r = await fetch('/api/csv/gerar', {method:'POST', body: fd});
-    if(!r.ok){
+    try{
+      const r = await fetch('/api/csv/gerar', {method:'POST', body: fd});
       const j = await r.json().catch(()=>({}));
-      return alert(j.error || 'Erro ao gerar CSV');
-    }
+      if(!r.ok || !j.success){
+        return alert(j.error || 'Erro ao processar lote por descrição');
+      }
 
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'export.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+      btnDownload.href = `/api/csv/baixar/${j.session_id}`;
+      resumo.textContent = `XMLs: ${j.total_xml || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+      out.style.display = 'block';
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }catch(err){
+      alert(err.message || 'Erro ao processar lote por descrição');
+    }finally{
+      btnProcessar.disabled = false;
+    }
   });
 </script>
 {% endblock %}

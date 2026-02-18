@@ -10,7 +10,6 @@ import io
 import threading
 import time
 
-import pandas as pd
 from lxml import etree
 
 app = Flask(__name__)
@@ -1059,55 +1058,131 @@ def api_resumo_status():
     return jsonify(st)
 
 # =========================================================
-# CSV export (mantém simples)
+# Lote por descrição (substitui funcionalidade antiga do CSV)
 # =========================================================
+def _parse_regras_descricao(regras_texto: str):
+    regras = []
+    for ln in (regras_texto or "").splitlines():
+        ln = ln.strip()
+        if not ln or ";" not in ln:
+            continue
+        desc, cclass = [x.strip() for x in ln.split(";", 1)]
+        if not desc or not cclass:
+            continue
+        regras.append((desc.lower(), cclass))
+    return regras
+
+
+def upsert_child_text(parent, tag, value, ns_uri):
+    tag_full = f"{{{ns_uri}}}{tag}" if ns_uri else tag
+    el = parent.find(tag_full)
+    if el is None:
+        el = etree.SubElement(parent, tag_full)
+    el.text = value
+
+
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
     try:
         if "zip_xmls" not in request.files:
             return jsonify({"success": False, "error": "Envie o ZIP no campo zip_xmls"}), 400
+
         zf = request.files["zip_xmls"]
         if not zf.filename.lower().endswith(".zip"):
             return jsonify({"success": False, "error": "Envie um arquivo .zip"}), 400
 
-        campos = (request.form.get("campos", "") or "").strip()
-        requested = [c.strip() for c in campos.split(";") if c.strip()] if campos else []
+        regras = _parse_regras_descricao(request.form.get("regras_descricao_cclass", ""))
+        if not regras:
+            return jsonify({"success": False, "error": "Informe regras válidas no formato descricao;cClass"}), 400
 
-        rows = []
-        with zipfile.ZipFile(io.BytesIO(zf.read()), "r") as zip_in:
-            for name in zip_in.namelist():
+        sid = str(uuid.uuid4())
+        out_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_{sid}.zip")
+
+        total_xml = 0
+        changed_files = 0
+        total_changes = 0
+        errors = 0
+
+        with zipfile.ZipFile(io.BytesIO(zf.read()), "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for name in zin.namelist():
                 if not name.lower().endswith(".xml"):
                     continue
-                d = parse_xml_any(zip_in.read(name))
-                if "error" in d:
-                    continue
-                row = {
-                    "arquivo": name,
-                    "tipo": d.get("tipo"),
-                    "nNF": d.get("nNF"),
-                    "serie": d.get("serie"),
-                    "cNF": d.get("cNF"),
-                    "dhEmi": d.get("dhEmi"),
-                    "emitente_nome": (d.get("emitente") or {}).get("xNome"),
-                    "emitente_doc": (d.get("emitente") or {}).get("CNPJ"),
-                    "dest_nome": (d.get("destinatario") or {}).get("xNome"),
-                    "dest_doc": (d.get("destinatario") or {}).get("doc"),
-                    "total_vProd": (d.get("totais") or {}).get("vProd"),
-                }
-                if requested:
-                    row = {k: row.get(k) for k in requested if k in row}
-                    if "arquivo" not in row:
-                        row["arquivo"] = name
-                rows.append(row)
 
-        if not rows:
-            return jsonify({"success": False, "error": "Nenhum XML válido encontrado no ZIP"}), 400
+                total_xml += 1
+                try:
+                    root = etree.fromstring(zin.read(name))
+                    ns_uri = root.tag.split("}")[0].strip("{") if "}" in root.tag else ""
+                    ns = {"nfe": ns_uri} if ns_uri else {}
 
-        df = pd.DataFrame(rows)
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
-        return send_file(io.BytesIO(csv_bytes), as_attachment=True, download_name="export.csv", mimetype="text/csv")
+                    dets = root.findall(".//nfe:det", ns) if ns else root.findall(".//det")
+                    file_changes = 0
+
+                    for det in dets:
+                        prod = det.find("nfe:prod", ns) if ns else det.find("prod")
+                        if prod is None:
+                            continue
+
+                        xprod = (prod.findtext("nfe:xProd", default="", namespaces=ns) if ns else prod.findtext("xProd", default="")) or ""
+                        xprod_lower = xprod.lower()
+
+                        for desc_rule, cclass_rule in regras:
+                            if desc_rule in xprod_lower:
+                                current = prod.findtext("nfe:cClass", default="", namespaces=ns) if ns else prod.findtext("cClass", default="")
+                                if (current or "").strip() != cclass_rule:
+                                    upsert_child_text(prod, "cClass", cclass_rule, ns_uri)
+                                    file_changes += 1
+                                break
+
+                    if file_changes > 0:
+                        changed_files += 1
+                        total_changes += file_changes
+
+                    zout.writestr(name, etree.tostring(root, encoding="utf-8", xml_declaration=True))
+                except Exception:
+                    errors += 1
+
+        r_setex(
+            f"csv:lote:{sid}",
+            SUMMARY_TTL,
+            {
+                "output_path": out_zip_path,
+                "total_xml": total_xml,
+                "changed_files": changed_files,
+                "total_changes": total_changes,
+                "errors": errors,
+            },
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "session_id": sid,
+                "total_xml": total_xml,
+                "changed_files": changed_files,
+                "total_changes": total_changes,
+                "errors": errors,
+            }
+        )
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/csv/baixar/<sid>")
+def api_csv_baixar(sid):
+    data = r_get_json(f"csv:lote:{sid}")
+    if not data:
+        return jsonify({"success": False, "error": "Sessão não encontrada"}), 404
+
+    out_path = data.get("output_path")
+    if not out_path or not os.path.exists(out_path):
+        return jsonify({"success": False, "error": "Arquivo processado não encontrado"}), 404
+
+    return send_file(
+        out_path,
+        as_attachment=True,
+        download_name=f"lote_descricao_{sid}.zip",
+        mimetype="application/zip",
+    )
 
 # =========================================================
 # Dados exemplo
