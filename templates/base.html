@@ -21,7 +21,7 @@
           <a class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}" href="{{ url_for('nota_page') }}"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
           <a class="nav-link {% if request.path.startswith('/lote') %}active{% endif %}" href="{{ url_for('lote_page') }}"><i data-lucide="archive" class="nav-icon"></i> Lote</a>
           <a class="nav-link {% if request.path.startswith('/resumo') %}active{% endif %}" href="{{ url_for('resumo_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo</a>
-          <a class="nav-link {% if request.path.startswith('/csv') %}active{% endif %}" href="{{ url_for('csv_page') }}"><i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV</a>
+          <a class="nav-link {% if request.path.startswith('/csv') %}active{% endif %}" href="{{ url_for('csv_page') }}"><i data-lucide="file-spreadsheet" class="nav-icon"></i> Lote por Descrição</a>
         </div>
       </div>
 
