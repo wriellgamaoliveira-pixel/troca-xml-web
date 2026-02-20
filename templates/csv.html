@@ -15,6 +15,15 @@
       <button class="btn" type="submit" id="btnProcessar"><i data-lucide="wand-2"></i> Processar</button>
     </form>
 
+    <div id="csvProgress" class="note" style="display:none; margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="csvPct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="csvBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="csvInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+    </div>
+
     <div id="csvOut" class="note" style="display:none; margin-top:12px;">
       <div id="csvResumo" style="margin-bottom:8px;"></div>
       <a class="btn btn-outline" id="btnDownload" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
@@ -30,6 +39,36 @@
   const resumo = document.getElementById('csvResumo');
   const btnDownload = document.getElementById('btnDownload');
   const btnProcessar = document.getElementById('btnProcessar');
+  const progress = document.getElementById('csvProgress');
+  const csvPct = document.getElementById('csvPct');
+  const csvBar = document.getElementById('csvBar');
+  const csvInfo = document.getElementById('csvInfo');
+
+  function updateProgress(percentual, processados, total, status){
+    const p = Math.max(0, Math.min(100, Number(percentual || 0)));
+    csvPct.textContent = `${p}%`;
+    csvBar.style.width = `${p}%`;
+    csvInfo.textContent = `Status: ${status || 'running'} | Processados: ${processados || 0}/${total || 0}`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/lote-descricao/status?session_id=${encodeURIComponent(sessionId)}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+
+      updateProgress(j.percentual, j.processados, j.total, j.status);
+
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        btnDownload.href = `/api/csv/baixar/${sessionId}`;
+        resumo.textContent = `XMLs: ${j.total || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 2000));
+    }
+  }
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
@@ -40,6 +79,8 @@
     if(!regras) return alert('Informe ao menos uma regra no formato descricao;cClass');
 
     out.style.display = 'none';
+    progress.style.display = 'block';
+    updateProgress(0, 0, 0, 'iniciando');
     btnProcessar.disabled = true;
 
     const fd = new FormData();
@@ -50,12 +91,10 @@
       const r = await fetch('/api/csv/gerar', {method:'POST', body: fd});
       const j = await r.json().catch(()=>({}));
       if(!r.ok || !j.success){
-        return alert(j.error || 'Erro ao processar lote por descrição');
+        return alert(j.error || 'Erro ao iniciar processamento do lote por descrição');
       }
 
-      btnDownload.href = `/api/csv/baixar/${j.session_id}`;
-      resumo.textContent = `XMLs: ${j.total_xml || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
-      out.style.display = 'block';
+      await pollStatus(j.session_id);
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }catch(err){
       alert(err.message || 'Erro ao processar lote por descrição');

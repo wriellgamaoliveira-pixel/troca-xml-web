@@ -1108,6 +1108,12 @@ def _find_child_local(parent, tag_name: str):
     return None
 
 
+def _set_lote_descricao_status(sid, **kw):
+    st = r_get_json(f"csv:status:{sid}") or {"session_id": sid}
+    st.update(kw)
+    r_setex(f"csv:status:{sid}", SUMMARY_TTL, st)
+
+
 def _process_descricao_xml_stream(xml_stream, regras):
     context = etree.iterparse(xml_stream, events=("end",), recover=True, huge_tree=True)
     file_changes = 0
@@ -1148,6 +1154,102 @@ def _process_descricao_xml_stream(xml_stream, regras):
     return xml_out, file_changes
 
 
+def _process_lote_descricao_async(sid: str, in_zip_path: str, regras):
+    out_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_{sid}.zip")
+    total_xml = 0
+    changed_files = 0
+    total_changes = 0
+    errors = 0
+    processados = 0
+
+    try:
+        _set_lote_descricao_status(sid, status="running", done=False, processados=0, total=0, percentual=0)
+
+        with zipfile.ZipFile(in_zip_path, "r") as zin:
+            total_xml = sum(1 for i in zin.infolist() if (not i.is_dir()) and i.filename.lower().endswith('.xml'))
+
+        _set_lote_descricao_status(sid, total=total_xml, percentual=0)
+
+        with zipfile.ZipFile(in_zip_path, "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                name = info.filename
+                if info.is_dir():
+                    continue
+
+                if not name.lower().endswith(".xml"):
+                    try:
+                        with zin.open(info, "r") as src:
+                            zout.writestr(name, src.read())
+                    except Exception:
+                        errors += 1
+                    continue
+
+                try:
+                    with zin.open(info, "r") as xml_file:
+                        xml_out, file_changes = _process_descricao_xml_stream(xml_file, regras)
+                    if file_changes > 0:
+                        changed_files += 1
+                        total_changes += file_changes
+                    zout.writestr(name, xml_out)
+                except Exception:
+                    errors += 1
+
+                processados += 1
+                percentual = int((processados / max(total_xml, 1)) * 100)
+                if processados % 1000 == 0:
+                    print(f"Processados {processados} arquivos")
+                if processados % 50 == 0 or processados == total_xml:
+                    _set_lote_descricao_status(
+                        sid,
+                        processados=processados,
+                        total=total_xml,
+                        percentual=percentual,
+                        status="running",
+                        done=False,
+                    )
+
+        r_setex(
+            f"csv:lote:{sid}",
+            SUMMARY_TTL,
+            {
+                "output_path": out_zip_path,
+                "total_xml": total_xml,
+                "changed_files": changed_files,
+                "total_changes": total_changes,
+                "errors": errors,
+            },
+        )
+
+        _set_lote_descricao_status(
+            sid,
+            status="done",
+            done=True,
+            processados=processados,
+            total=total_xml,
+            percentual=100,
+            changed_files=changed_files,
+            total_changes=total_changes,
+            errors=errors,
+        )
+    except Exception as e:
+        _set_lote_descricao_status(
+            sid,
+            status="error",
+            done=True,
+            processados=processados,
+            total=total_xml,
+            percentual=int((processados / max(total_xml, 1)) * 100) if total_xml else 0,
+            error=str(e),
+            errors=errors + 1,
+        )
+    finally:
+        try:
+            if os.path.exists(in_zip_path):
+                os.remove(in_zip_path)
+        except Exception:
+            pass
+
+
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
     try:
@@ -1164,74 +1266,30 @@ def api_csv_gerar():
 
         sid = str(uuid.uuid4())
         in_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_in_{sid}.zip")
-        out_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_{sid}.zip")
         zf.save(in_zip_path)
 
-        total_xml = 0
-        changed_files = 0
-        total_changes = 0
-        errors = 0
+        session["lote_descricao_session_id"] = sid
+        _set_lote_descricao_status(sid, status="queued", done=False, processados=0, total=0, percentual=0)
 
-        with zipfile.ZipFile(in_zip_path, "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-            contador = 0
-            for info in zin.infolist():
-                name = info.filename
-                if info.is_dir():
-                    continue
+        th = threading.Thread(target=_process_lote_descricao_async, args=(sid, in_zip_path, regras), daemon=True)
+        th.start()
 
-                if not name.lower().endswith(".xml"):
-                    try:
-                        with zin.open(info, "r") as src:
-                            zout.writestr(name, src.read())
-                    except Exception:
-                        errors += 1
-                    continue
-
-                total_xml += 1
-                contador += 1
-                try:
-                    with zin.open(info, "r") as xml_file:
-                        xml_out, file_changes = _process_descricao_xml_stream(xml_file, regras)
-                    if file_changes > 0:
-                        changed_files += 1
-                        total_changes += file_changes
-                    zout.writestr(name, xml_out)
-                except Exception:
-                    errors += 1
-
-                if contador % 1000 == 0:
-                    print(f"Processados {contador} arquivos")
-
-        r_setex(
-            f"csv:lote:{sid}",
-            SUMMARY_TTL,
-            {
-                "output_path": out_zip_path,
-                "total_xml": total_xml,
-                "changed_files": changed_files,
-                "total_changes": total_changes,
-                "errors": errors,
-            },
-        )
-
-        try:
-            if os.path.exists(in_zip_path):
-                os.remove(in_zip_path)
-        except Exception:
-            pass
-
-        return jsonify(
-            {
-                "success": True,
-                "session_id": sid,
-                "total_xml": total_xml,
-                "changed_files": changed_files,
-                "total_changes": total_changes,
-                "errors": errors,
-            }
-        )
+        return jsonify({"success": True, "status": "iniciado", "session_id": sid})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/lote-descricao/status")
+def lote_descricao_status():
+    sid = request.args.get("session_id") or session.get("lote_descricao_session_id")
+    if not sid:
+        return jsonify({"success": False, "error": "session_id é obrigatório"}), 400
+
+    st = r_get_json(f"csv:status:{sid}")
+    if not st:
+        return jsonify({"success": True, "status": "nao_encontrado", "processados": 0, "total": 0, "percentual": 0, "done": True})
+
+    return jsonify({"success": True, **st})
 
 
 @app.route("/api/csv/baixar/<sid>")
@@ -1250,6 +1308,7 @@ def api_csv_baixar(sid):
         download_name=f"lote_descricao_{sid}.zip",
         mimetype="application/zip",
     )
+
 
 # =========================================================
 # Dados exemplo
