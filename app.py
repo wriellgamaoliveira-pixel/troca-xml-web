@@ -1081,6 +1081,51 @@ def upsert_child_text(parent, tag, value, ns_uri):
     el.text = value
 
 
+def _find_child_local(parent, tag_name: str):
+    if parent is None:
+        return None
+    for child in parent:
+        if isinstance(child.tag, str) and etree.QName(child).localname == tag_name:
+            return child
+    return None
+
+
+def _process_descricao_xml_stream(xml_stream, regras):
+    context = etree.iterparse(xml_stream, events=("end",), recover=True, huge_tree=True)
+    file_changes = 0
+
+    for _, elem in context:
+        if not isinstance(elem.tag, str) or etree.QName(elem).localname != "det":
+            continue
+
+        prod = _find_child_local(elem, "prod")
+        if prod is None:
+            continue
+
+        xprod_el = _find_child_local(prod, "xProd")
+        xprod = ((xprod_el.text or "") if xprod_el is not None else "").strip()
+        if not xprod:
+            continue
+
+        xprod_lower = xprod.lower()
+        for desc_rule, cclass_rule in regras:
+            if desc_rule in xprod_lower:
+                cclass_el = _find_child_local(prod, "cClass")
+                current = (cclass_el.text or "").strip() if cclass_el is not None else ""
+                if current != cclass_rule:
+                    ns_uri = etree.QName(prod).namespace or ""
+                    upsert_child_text(prod, "cClass", cclass_rule, ns_uri)
+                    file_changes += 1
+                break
+
+    root = context.root
+    xml_out = etree.tostring(root, encoding="utf-8", xml_declaration=True)
+    if root is not None:
+        root.clear()
+    del context
+    return xml_out, file_changes
+
+
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
     try:
@@ -1096,50 +1141,44 @@ def api_csv_gerar():
             return jsonify({"success": False, "error": "Informe regras válidas no formato descricao;cClass"}), 400
 
         sid = str(uuid.uuid4())
+        in_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_in_{sid}.zip")
         out_zip_path = os.path.join(UPLOADS_DIR, f"lote_descricao_{sid}.zip")
+        zf.save(in_zip_path)
 
         total_xml = 0
         changed_files = 0
         total_changes = 0
         errors = 0
 
-        with zipfile.ZipFile(io.BytesIO(zf.read()), "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-            for name in zin.namelist():
+        with zipfile.ZipFile(in_zip_path, "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            contador = 0
+            for info in zin.infolist():
+                name = info.filename
+                if info.is_dir():
+                    continue
+
                 if not name.lower().endswith(".xml"):
+                    try:
+                        with zin.open(info, "r") as src:
+                            zout.writestr(name, src.read())
+                    except Exception:
+                        errors += 1
                     continue
 
                 total_xml += 1
+                contador += 1
                 try:
-                    root = etree.fromstring(zin.read(name))
-                    ns_uri = root.tag.split("}")[0].strip("{") if "}" in root.tag else ""
-                    ns = {"nfe": ns_uri} if ns_uri else {}
-
-                    dets = root.findall(".//nfe:det", ns) if ns else root.findall(".//det")
-                    file_changes = 0
-
-                    for det in dets:
-                        prod = det.find("nfe:prod", ns) if ns else det.find("prod")
-                        if prod is None:
-                            continue
-
-                        xprod = (prod.findtext("nfe:xProd", default="", namespaces=ns) if ns else prod.findtext("xProd", default="")) or ""
-                        xprod_lower = xprod.lower()
-
-                        for desc_rule, cclass_rule in regras:
-                            if desc_rule in xprod_lower:
-                                current = prod.findtext("nfe:cClass", default="", namespaces=ns) if ns else prod.findtext("cClass", default="")
-                                if (current or "").strip() != cclass_rule:
-                                    upsert_child_text(prod, "cClass", cclass_rule, ns_uri)
-                                    file_changes += 1
-                                break
-
+                    with zin.open(info, "r") as xml_file:
+                        xml_out, file_changes = _process_descricao_xml_stream(xml_file, regras)
                     if file_changes > 0:
                         changed_files += 1
                         total_changes += file_changes
-
-                    zout.writestr(name, etree.tostring(root, encoding="utf-8", xml_declaration=True))
+                    zout.writestr(name, xml_out)
                 except Exception:
                     errors += 1
+
+                if contador % 1000 == 0:
+                    print(f"Processados {contador} arquivos")
 
         r_setex(
             f"csv:lote:{sid}",
@@ -1152,6 +1191,12 @@ def api_csv_gerar():
                 "errors": errors,
             },
         )
+
+        try:
+            if os.path.exists(in_zip_path):
+                os.remove(in_zip_path)
+        except Exception:
+            pass
 
         return jsonify(
             {
