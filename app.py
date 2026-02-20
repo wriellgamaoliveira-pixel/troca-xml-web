@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 import csv
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 import zipfile
@@ -1060,16 +1061,33 @@ def api_resumo_status():
 # =========================================================
 # Lote por descrição (substitui funcionalidade antiga do CSV)
 # =========================================================
+def normalizar(texto):
+    if not texto:
+        return ""
+    texto = texto.lower().strip()
+    texto = " ".join(texto.split())
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = texto.encode("ASCII", "ignore").decode("ASCII")
+    return texto
+
+
 def _parse_regras_descricao(regras_texto: str):
     regras = []
-    for ln in (regras_texto or "").splitlines():
-        ln = ln.strip()
-        if not ln or ";" not in ln:
+    for linha in (regras_texto or "").splitlines():
+        linha = linha.strip()
+        if not linha:
             continue
-        desc, cclass = [x.strip() for x in ln.split(";", 1)]
-        if not desc or not cclass:
+
+        partes = linha.split(";")
+        if len(partes) != 2:
             continue
-        regras.append((desc.lower(), cclass))
+
+        descricao_regra = partes[0].strip()
+        nova_cclass = partes[1].strip()
+        if not descricao_regra or not nova_cclass:
+            continue
+
+        regras.append((descricao_regra, normalizar(descricao_regra), nova_cclass))
     return regras
 
 
@@ -1107,9 +1125,13 @@ def _process_descricao_xml_stream(xml_stream, regras):
         if not xprod:
             continue
 
-        xprod_lower = xprod.lower()
-        for desc_rule, cclass_rule in regras:
-            if desc_rule in xprod_lower:
+        xprod_norm = normalizar(xprod)
+        for descricao_regra, regra_norm, cclass_rule in regras:
+            match = regra_norm in xprod_norm
+            print("Descrição XML:", xprod)
+            print("Regra:", descricao_regra)
+            print("Match:", match)
+            if match:
                 cclass_el = _find_child_local(prod, "cClass")
                 current = (cclass_el.text or "").strip() if cclass_el is not None else ""
                 if current != cclass_rule:
