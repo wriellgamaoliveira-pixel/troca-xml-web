@@ -543,6 +543,178 @@ def index():
 def sessao_page():
     return render_template("sessao.html")
 
+
+def _set_sessao_status(sid, **kw):
+    st = r_get_json(f"sessao:status:{sid}") or {"session_id": sid}
+    st.update(kw)
+    r_setex(f"sessao:status:{sid}", SUMMARY_TTL, st)
+
+
+def _process_remove_cfop_icms_async(sid: str, in_zip_path: str, icms_tipo: str):
+    out_zip_path = os.path.join(UPLOADS_DIR, f"remover_cfop_icms_{sid}.zip")
+    total_xml = 0
+    processados = 0
+    changed_files = 0
+    total_changes = 0
+    errors = 0
+    icms_tipo = (icms_tipo or "ICMS90").strip().upper()
+
+    try:
+        _set_sessao_status(sid, status="running", done=False, processados=0, total=0, percentual=0)
+
+        with zipfile.ZipFile(in_zip_path, "r") as zin:
+            total_xml = sum(1 for i in zin.infolist() if (not i.is_dir()) and i.filename.lower().endswith(".xml"))
+
+        _set_sessao_status(sid, total=total_xml, percentual=0)
+
+        with zipfile.ZipFile(in_zip_path, "r") as zin, zipfile.ZipFile(out_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                name = info.filename
+                if info.is_dir():
+                    continue
+
+                if not name.lower().endswith(".xml"):
+                    try:
+                        with zin.open(info, "r") as src:
+                            zout.writestr(name, src.read())
+                    except Exception:
+                        errors += 1
+                    continue
+
+                file_changes = 0
+                try:
+                    root = etree.fromstring(zin.read(name))
+                    ns_uri = root.tag.split("}")[0].strip("{") if "}" in root.tag else ""
+                    ns = {"nfe": ns_uri} if ns_uri else {}
+
+                    dets = root.findall('.//nfe:det', ns) if ns else root.findall('.//det')
+                    for det in dets:
+                        prod = det.find('nfe:prod', ns) if ns else det.find('prod')
+                        imposto = det.find('nfe:imposto', ns) if ns else det.find('imposto')
+                        if prod is None or imposto is None:
+                            continue
+
+                        icms_detectado = None
+                        for child in imposto:
+                            if not isinstance(child.tag, str):
+                                continue
+                            tag_name = child.tag.split('}')[-1]
+                            if tag_name.startswith('ICMS'):
+                                icms_detectado = tag_name.upper()
+                                break
+
+                        if icms_detectado == icms_tipo:
+                            cfop = prod.find('nfe:CFOP', ns) if ns else prod.find('CFOP')
+                            if cfop is not None:
+                                prod.remove(cfop)
+                                file_changes += 1
+
+                    if file_changes > 0:
+                        changed_files += 1
+                        total_changes += file_changes
+
+                    zout.writestr(name, etree.tostring(root, encoding='utf-8', xml_declaration=True))
+                except Exception:
+                    errors += 1
+
+                processados += 1
+                percentual = int((processados / max(total_xml, 1)) * 100)
+                if processados % 50 == 0 or processados == total_xml:
+                    _set_sessao_status(sid, status="running", done=False, processados=processados, total=total_xml, percentual=percentual)
+
+        r_setex(
+            f"sessao:lote:{sid}",
+            SUMMARY_TTL,
+            {
+                "output_path": out_zip_path,
+                "total_xml": total_xml,
+                "changed_files": changed_files,
+                "total_changes": total_changes,
+                "errors": errors,
+                "icms_tipo": icms_tipo,
+            },
+        )
+
+        _set_sessao_status(
+            sid,
+            status="done",
+            done=True,
+            processados=processados,
+            total=total_xml,
+            percentual=100,
+            changed_files=changed_files,
+            total_changes=total_changes,
+            errors=errors,
+            icms_tipo=icms_tipo,
+        )
+    except Exception as e:
+        _set_sessao_status(
+            sid,
+            status="error",
+            done=True,
+            processados=processados,
+            total=total_xml,
+            percentual=int((processados / max(total_xml, 1)) * 100) if total_xml else 0,
+            errors=errors + 1,
+            error=str(e),
+            icms_tipo=icms_tipo,
+        )
+    finally:
+        try:
+            if os.path.exists(in_zip_path):
+                os.remove(in_zip_path)
+        except Exception:
+            pass
+
+
+@app.route('/api/sessao/processar', methods=['POST'])
+def api_sessao_processar():
+    try:
+        if 'zip_xmls' not in request.files:
+            return jsonify({'success': False, 'error': 'Envie o ZIP no campo zip_xmls'}), 400
+        zf = request.files['zip_xmls']
+        if not zf.filename.lower().endswith('.zip'):
+            return jsonify({'success': False, 'error': 'Envie um arquivo .zip'}), 400
+
+        icms_tipo = (request.form.get('icms_tipo', 'ICMS90') or 'ICMS90').strip().upper()
+        if not icms_tipo.startswith('ICMS'):
+            return jsonify({'success': False, 'error': 'Tipo ICMS inválido. Exemplo: ICMS90'}), 400
+
+        sid = str(uuid.uuid4())
+        in_zip_path = os.path.join(UPLOADS_DIR, f'remover_cfop_icms_in_{sid}.zip')
+        zf.save(in_zip_path)
+
+        session['sessao_session_id'] = sid
+        _set_sessao_status(sid, status='queued', done=False, processados=0, total=0, percentual=0, icms_tipo=icms_tipo)
+
+        th = threading.Thread(target=_process_remove_cfop_icms_async, args=(sid, in_zip_path, icms_tipo), daemon=True)
+        th.start()
+
+        return jsonify({'success': True, 'session_id': sid, 'status': 'iniciado'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/sessao/status/<sid>')
+def api_sessao_status(sid):
+    st = r_get_json(f"sessao:status:{sid}")
+    if not st:
+        return jsonify({'success': True, 'status': 'nao_encontrado', 'done': True, 'processados': 0, 'total': 0, 'percentual': 0})
+    return jsonify({'success': True, **st})
+
+
+@app.route('/api/sessao/baixar/<sid>')
+def api_sessao_baixar(sid):
+    data = r_get_json(f"sessao:lote:{sid}")
+    if not data:
+        return jsonify({'success': False, 'error': 'Sessão não encontrada'}), 404
+
+    out_path = data.get('output_path')
+    if not out_path or not os.path.exists(out_path):
+        return jsonify({'success': False, 'error': 'Arquivo processado não encontrado'}), 404
+
+    return send_file(out_path, as_attachment=True, download_name=f"remover_cfop_icms_{sid}.zip", mimetype='application/zip')
+
 @app.route("/nota")
 def nota_page():
     return render_template("nota.html")
