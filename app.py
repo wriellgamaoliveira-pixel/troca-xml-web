@@ -161,17 +161,27 @@ def _icms_vals(imposto, ns):
     if imposto is None:
         return "0", "0", "0"
 
-    icms_group = imposto.find('.//nfe:ICMS', ns)
-    if icms_group is None:
-        icms_group = imposto.find('.//ICMS')
-    if icms_group is None:
-        return "0", "0", "0"
-
+    # Detecta dinamicamente qualquer nó ICMSXX direto em <imposto>
     icms_node = None
-    for child in icms_group:
-        if isinstance(child.tag, str):
+    for child in imposto:
+        if not isinstance(child.tag, str):
+            continue
+        tag_name = child.tag.split('}')[-1]
+        if tag_name.startswith('ICMS'):
             icms_node = child
             break
+
+    # fallback para layouts com grupo <ICMS><ICMS00>...</ICMS00></ICMS>
+    if icms_node is None:
+        icms_group = imposto.find('.//nfe:ICMS', ns)
+        if icms_group is None:
+            icms_group = imposto.find('.//ICMS')
+        if icms_group is not None:
+            for child in icms_group:
+                if isinstance(child.tag, str):
+                    icms_node = child
+                    break
+
     if icms_node is None:
         return "0", "0", "0"
 
