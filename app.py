@@ -249,8 +249,8 @@ def parse_nfcom_xml(xml_bytes: bytes):
         v_prod = safe_float(get_text(prod, './/nfe:vProd', ns)) if prod is not None else 0.0
         v_desc = safe_float(get_text(prod, './/nfe:vDesc', ns)) if prod is not None else 0.0
         v_outro = safe_float(get_text(prod, './/nfe:vOutro', ns)) if prod is not None else 0.0
-        v_fust = safe_float(get_text(prod, './/nfe:vFUST', ns)) if prod is not None else 0.0
-        v_funttel = safe_float(get_text(prod, './/nfe:vFUNTTEL', ns)) if prod is not None else 0.0
+        v_fust = safe_float(get_text(imposto, './/nfe:FUST/nfe:vFUST', ns)) if imposto is not None else 0.0
+        v_funttel = safe_float(get_text(imposto, './/nfe:FUNTTEL/nfe:vFUNTTEL', ns)) if imposto is not None else 0.0
         ibscbs = prod.find('.//nfe:IBSCBS', ns) if prod is not None and ns else (prod.find('.//IBSCBS') if prod is not None else None)
         v_ibs = safe_float(get_text(ibscbs, './/nfe:vIBS', ns)) if ibscbs is not None else 0.0
         v_cbs = safe_float(get_text(ibscbs, './/nfe:vCBS', ns)) if ibscbs is not None else 0.0
@@ -413,8 +413,8 @@ def parse_nfe_xml(xml_bytes: bytes):
         total_vprod += v_prod
         v_desc = safe_float(get_text(prod, './/nfe:vDesc', ns)) if prod is not None else 0.0
         v_outro = safe_float(get_text(prod, './/nfe:vOutro', ns)) if prod is not None else 0.0
-        v_fust = safe_float(get_text(prod, './/nfe:vFUST', ns)) if prod is not None else 0.0
-        v_funttel = safe_float(get_text(prod, './/nfe:vFUNTTEL', ns)) if prod is not None else 0.0
+        v_fust = safe_float(get_text(imposto, './/nfe:FUST/nfe:vFUST', ns)) if imposto is not None else 0.0
+        v_funttel = safe_float(get_text(imposto, './/nfe:FUNTTEL/nfe:vFUNTTEL', ns)) if imposto is not None else 0.0
         ibscbs = prod.find('.//nfe:IBSCBS', ns) if prod is not None and ns else (prod.find('.//IBSCBS') if prod is not None else None)
         v_ibs = safe_float(get_text(ibscbs, './/nfe:vIBS', ns)) if ibscbs is not None else 0.0
         v_cbs = safe_float(get_text(ibscbs, './/nfe:vCBS', ns)) if ibscbs is not None else 0.0
