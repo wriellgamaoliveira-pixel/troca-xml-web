@@ -210,9 +210,17 @@ def parse_nfcom_xml(xml_bytes: bytes):
     if dest_doc in (None, '0.00'):
         dest_doc = get_text(dest, './/nfe:CPF', ns) if dest is not None else None
 
-    # Totais e retenções
     valor_total = safe_float(get_text(inf, './/nfe:vNF', ns))
     vProd = safe_float(get_text(inf, './/nfe:vProd', ns))
+    vICMS_total = safe_float(get_text(root, './/nfe:ICMSTot/nfe:vICMS', ns))
+    vPIS_total = safe_float(get_text(root, './/nfe:total/nfe:vPIS', ns))
+    vCOFINS_total = safe_float(get_text(root, './/nfe:total/nfe:vCOFINS', ns))
+    vFUST_total = safe_float(get_text(root, './/nfe:total/nfe:vFUST', ns))
+    vFUNTTEL_total = safe_float(get_text(root, './/nfe:total/nfe:vFUNTTEL', ns))
+    vDesc_total = safe_float(get_text(root, './/nfe:total/nfe:vDesc', ns))
+    vOutro_total = safe_float(get_text(root, './/nfe:total/nfe:vOutro', ns))
+    vIBS_total = safe_float(get_text(root, './/nfe:IBSCBSTot/nfe:vIBS', ns))
+    vCBS_total = safe_float(get_text(root, './/nfe:IBSCBSTot/nfe:vCBS', ns))
 
     ret = inf.find('.//nfe:vRetTribTot', ns) if ns else inf.find('.//vRetTribTot')
     ret_pis = safe_float(get_text(ret, './/nfe:vRetPIS', ns)) if ret is not None else 0.0
@@ -239,8 +247,15 @@ def parse_nfcom_xml(xml_bytes: bytes):
 
         v_un = safe_float(get_text(prod, './/nfe:vUnCom', ns)) if prod is not None else 0.0
         v_prod = safe_float(get_text(prod, './/nfe:vProd', ns)) if prod is not None else 0.0
-        vpis = get_text(pis, './/nfe:vPIS', ns) if pis is not None else '0'
-        vcofins = get_text(cofins, './/nfe:vCOFINS', ns) if cofins is not None else '0'
+        v_desc = safe_float(get_text(prod, './/nfe:vDesc', ns)) if prod is not None else 0.0
+        v_outro = safe_float(get_text(prod, './/nfe:vOutro', ns)) if prod is not None else 0.0
+        v_fust = safe_float(get_text(prod, './/nfe:vFUST', ns)) if prod is not None else 0.0
+        v_funttel = safe_float(get_text(prod, './/nfe:vFUNTTEL', ns)) if prod is not None else 0.0
+        ibscbs = prod.find('.//nfe:IBSCBS', ns) if prod is not None and ns else (prod.find('.//IBSCBS') if prod is not None else None)
+        v_ibs = safe_float(get_text(ibscbs, './/nfe:vIBS', ns)) if ibscbs is not None else 0.0
+        v_cbs = safe_float(get_text(ibscbs, './/nfe:vCBS', ns)) if ibscbs is not None else 0.0
+        vpis = safe_float(get_text(pis, './/nfe:vPIS', ns)) if pis is not None else 0.0
+        vcofins = safe_float(get_text(cofins, './/nfe:vCOFINS', ns)) if cofins is not None else 0.0
         vbc, picms, vicms = _icms_vals(imposto, ns)
 
         itens.append({
@@ -258,14 +273,19 @@ def parse_nfcom_xml(xml_bytes: bytes):
             'vProd_br': br_money(v_prod),
             'v_total': br_money(v_prod),
             'v_unit': br_money(v_un),
-            'vPIS': vpis,
-            'vCOFINS': vcofins,
+            'vPIS': br_money(vpis),
+            'vCOFINS': br_money(vcofins),
             'vBC': vbc,
             'pICMS': picms,
             'vICMS': vicms,
-            'pis_cofins': f"{vpis}/{vcofins}",
-            'bc_icms': vbc,
-            'aliq_icms': picms,
+            'pis_cofins': f"{br_money(vpis)}/{br_money(vcofins)}",
+            'vDesc': br_money(v_desc),
+            'vOutro': br_money(v_outro),
+            'vFUST': br_money(v_fust),
+            'vFUNTTEL': br_money(v_funttel),
+            'vIBS': br_money(v_ibs),
+            'vCBS': br_money(v_cbs),
+            'ibs_cbs': f"{br_money(v_ibs)}/{br_money(v_cbs)}",
             'icms': vicms,
         })
 
@@ -291,6 +311,16 @@ def parse_nfcom_xml(xml_bytes: bytes):
             'vProd_br': br_money(vProd),
             'vPagar': valor_total,
             'vPagar_br': br_money(valor_total),
+            'vICMS_total': br_money(vICMS_total),
+            'vPIS_total': br_money(vPIS_total),
+            'vCOFINS_total': br_money(vCOFINS_total),
+            'vFUST_total': br_money(vFUST_total),
+            'vFUNTTEL_total': br_money(vFUNTTEL_total),
+            'vDesc_total': br_money(vDesc_total),
+            'vOutro_total': br_money(vOutro_total),
+            'vIBS_total': br_money(vIBS_total),
+            'vCBS_total': br_money(vCBS_total),
+            'vIBSCBS_total': f"{br_money(vIBS_total)}/{br_money(vCBS_total)}",
         },
         'ret_pis': ret_pis,
         'ret_cofins': ret_cofins,
@@ -344,6 +374,15 @@ def parse_nfe_xml(xml_bytes: bytes):
         dest_doc = get_text(dest, './/nfe:CPF', ns) if dest is not None else None
 
     valor_total = safe_float(get_text(inf, './/nfe:vNF', ns))
+    vICMS_total = safe_float(get_text(root, './/nfe:ICMSTot/nfe:vICMS', ns))
+    vPIS_total = safe_float(get_text(root, './/nfe:total/nfe:vPIS', ns))
+    vCOFINS_total = safe_float(get_text(root, './/nfe:total/nfe:vCOFINS', ns))
+    vFUST_total = safe_float(get_text(root, './/nfe:total/nfe:vFUST', ns))
+    vFUNTTEL_total = safe_float(get_text(root, './/nfe:total/nfe:vFUNTTEL', ns))
+    vDesc_total = safe_float(get_text(root, './/nfe:total/nfe:vDesc', ns))
+    vOutro_total = safe_float(get_text(root, './/nfe:total/nfe:vOutro', ns))
+    vIBS_total = safe_float(get_text(root, './/nfe:IBSCBSTot/nfe:vIBS', ns))
+    vCBS_total = safe_float(get_text(root, './/nfe:IBSCBSTot/nfe:vCBS', ns))
 
     ret = inf.find('.//nfe:vRetTribTot', ns) if ns else inf.find('.//vRetTribTot')
     ret_pis = safe_float(get_text(ret, './/nfe:vRetPIS', ns)) if ret is not None else 0.0
@@ -372,9 +411,15 @@ def parse_nfe_xml(xml_bytes: bytes):
         v_un = safe_float(get_text(prod, './/nfe:vUnCom', ns)) if prod is not None else 0.0
         v_prod = safe_float(get_text(prod, './/nfe:vProd', ns)) if prod is not None else 0.0
         total_vprod += v_prod
-
-        vpis = get_text(pis, './/nfe:vPIS', ns) if pis is not None else '0'
-        vcofins = get_text(cofins, './/nfe:vCOFINS', ns) if cofins is not None else '0'
+        v_desc = safe_float(get_text(prod, './/nfe:vDesc', ns)) if prod is not None else 0.0
+        v_outro = safe_float(get_text(prod, './/nfe:vOutro', ns)) if prod is not None else 0.0
+        v_fust = safe_float(get_text(prod, './/nfe:vFUST', ns)) if prod is not None else 0.0
+        v_funttel = safe_float(get_text(prod, './/nfe:vFUNTTEL', ns)) if prod is not None else 0.0
+        ibscbs = prod.find('.//nfe:IBSCBS', ns) if prod is not None and ns else (prod.find('.//IBSCBS') if prod is not None else None)
+        v_ibs = safe_float(get_text(ibscbs, './/nfe:vIBS', ns)) if ibscbs is not None else 0.0
+        v_cbs = safe_float(get_text(ibscbs, './/nfe:vCBS', ns)) if ibscbs is not None else 0.0
+        vpis = safe_float(get_text(pis, './/nfe:vPIS', ns)) if pis is not None else 0.0
+        vcofins = safe_float(get_text(cofins, './/nfe:vCOFINS', ns)) if cofins is not None else 0.0
         vbc, picms, vicms = _icms_vals(imposto, ns)
 
         itens.append({
@@ -392,14 +437,19 @@ def parse_nfe_xml(xml_bytes: bytes):
             'vProd_br': br_money(v_prod),
             'v_total': br_money(v_prod),
             'v_unit': br_money(v_un),
-            'vPIS': vpis,
-            'vCOFINS': vcofins,
+            'vPIS': br_money(vpis),
+            'vCOFINS': br_money(vcofins),
             'vBC': vbc,
             'pICMS': picms,
             'vICMS': vicms,
-            'pis_cofins': f"{vpis}/{vcofins}",
-            'bc_icms': vbc,
-            'aliq_icms': picms,
+            'pis_cofins': f"{br_money(vpis)}/{br_money(vcofins)}",
+            'vDesc': br_money(v_desc),
+            'vOutro': br_money(v_outro),
+            'vFUST': br_money(v_fust),
+            'vFUNTTEL': br_money(v_funttel),
+            'vIBS': br_money(v_ibs),
+            'vCBS': br_money(v_cbs),
+            'ibs_cbs': f"{br_money(v_ibs)}/{br_money(v_cbs)}",
             'icms': vicms,
         })
 
@@ -423,6 +473,16 @@ def parse_nfe_xml(xml_bytes: bytes):
             'vNF': br_money(valor_total),
             'vProd': total_vprod,
             'vProd_br': br_money(total_vprod),
+            'vICMS_total': br_money(vICMS_total),
+            'vPIS_total': br_money(vPIS_total),
+            'vCOFINS_total': br_money(vCOFINS_total),
+            'vFUST_total': br_money(vFUST_total),
+            'vFUNTTEL_total': br_money(vFUNTTEL_total),
+            'vDesc_total': br_money(vDesc_total),
+            'vOutro_total': br_money(vOutro_total),
+            'vIBS_total': br_money(vIBS_total),
+            'vCBS_total': br_money(vCBS_total),
+            'vIBSCBS_total': f"{br_money(vIBS_total)}/{br_money(vCBS_total)}",
         },
         'ret_pis': ret_pis,
         'ret_cofins': ret_cofins,
