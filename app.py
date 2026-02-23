@@ -877,6 +877,20 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 return
             lst.append(note)
 
+        def num_any(v):
+            if isinstance(v, (int, float)):
+                return float(v)
+            txt = str(v or "").strip()
+            txt = txt.replace("R$", "").replace(" ", "")
+            if "," in txt and "." in txt:
+                txt = txt.replace(".", "").replace(",", ".")
+            elif "," in txt:
+                txt = txt.replace(",", ".")
+            try:
+                return float(txt)
+            except Exception:
+                return 0.0
+
         with zipfile.ZipFile(zip_path, "r") as z:
             names = [n for n in z.namelist() if n.lower().endswith(".xml")]
             total = len(names)
@@ -926,6 +940,35 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         cProd = (it.get("cProd") or "").strip()
                         xProd = (it.get("xProd") or "").strip()
                         v = float(it.get("vProd") or 0.0)
+                        icms = num_any(it.get("vICMS") or it.get("icms"))
+                        pis = num_any(it.get("vPIS"))
+                        cofins = num_any(it.get("vCOFINS"))
+                        fust = num_any(it.get("vFUST"))
+                        funttel = num_any(it.get("vFUNTTEL"))
+                        ibs = num_any(it.get("vIBS"))
+                        cbs = num_any(it.get("vCBS"))
+                        v_desc = num_any(it.get("vDesc"))
+                        v_outro = num_any(it.get("vOutro"))
+                        nota_metricas = {
+                            "icms": icms,
+                            "pis": pis,
+                            "cofins": cofins,
+                            "fust": fust,
+                            "funttel": funttel,
+                            "ibs": ibs,
+                            "cbs": cbs,
+                            "vDesc": v_desc,
+                            "vOutro": v_outro,
+                            "icms_br": br_money(icms),
+                            "pis_br": br_money(pis),
+                            "cofins_br": br_money(cofins),
+                            "fust_br": br_money(fust),
+                            "funttel_br": br_money(funttel),
+                            "ibs_br": br_money(ibs),
+                            "cbs_br": br_money(cbs),
+                            "vDesc_br": br_money(v_desc),
+                            "vOutro_br": br_money(v_outro),
+                        }
 
                         total_geral += v
 
@@ -938,18 +981,57 @@ def _process_zip_resumo(sid: str, zip_path: str):
                                     "desc": xProd or "",
                                     "qtd_itens": 0,
                                     "v_total": 0.0,
-                                    "cfops": defaultdict(lambda: {"v_total": 0.0, "notas": []}),
+                                    "total_icms": 0.0,
+                                    "total_pis": 0.0,
+                                    "total_cofins": 0.0,
+                                    "total_fust": 0.0,
+                                    "total_funttel": 0.0,
+                                    "total_ibs": 0.0,
+                                    "total_cbs": 0.0,
+                                    "total_desc": 0.0,
+                                    "total_outro": 0.0,
+                                    "cfops": defaultdict(lambda: {
+                                        "v_total": 0.0,
+                                        "notas": [],
+                                        "total_icms": 0.0,
+                                        "total_pis": 0.0,
+                                        "total_cofins": 0.0,
+                                        "total_fust": 0.0,
+                                        "total_funttel": 0.0,
+                                        "total_ibs": 0.0,
+                                        "total_cbs": 0.0,
+                                        "total_desc": 0.0,
+                                        "total_outro": 0.0,
+                                    }),
                                 },
                             )
                             if not rec["desc"] and xProd:
                                 rec["desc"] = xProd
                             rec["qtd_itens"] += 1
                             rec["v_total"] += v
+                            rec["total_icms"] += icms
+                            rec["total_pis"] += pis
+                            rec["total_cofins"] += cofins
+                            rec["total_fust"] += fust
+                            rec["total_funttel"] += funttel
+                            rec["total_ibs"] += ibs
+                            rec["total_cbs"] += cbs
+                            rec["total_desc"] += v_desc
+                            rec["total_outro"] += v_outro
 
                             if cfop:
                                 cfop_rec = rec["cfops"][cfop]
                                 cfop_rec["v_total"] += v
-                                cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v)})
+                                cfop_rec["total_icms"] += icms
+                                cfop_rec["total_pis"] += pis
+                                cfop_rec["total_cofins"] += cofins
+                                cfop_rec["total_fust"] += fust
+                                cfop_rec["total_funttel"] += funttel
+                                cfop_rec["total_ibs"] += ibs
+                                cfop_rec["total_cbs"] += cbs
+                                cfop_rec["total_desc"] += v_desc
+                                cfop_rec["total_outro"] += v_outro
+                                cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
                                 total_processadas += 1
 
                         # --- Agrupa por item (cProd)
@@ -964,11 +1046,29 @@ def _process_zip_resumo(sid: str, zip_path: str):
                                     "qtd_itens": 0,
                                     "v_total": 0.0,
                                     "notas": [],
+                                    "total_icms": 0.0,
+                                    "total_pis": 0.0,
+                                    "total_cofins": 0.0,
+                                    "total_fust": 0.0,
+                                    "total_funttel": 0.0,
+                                    "total_ibs": 0.0,
+                                    "total_cbs": 0.0,
+                                    "total_desc": 0.0,
+                                    "total_outro": 0.0,
                                 },
                             )
                             ir["qtd_itens"] += 1
                             ir["v_total"] += v
-                            add_note(ir["notas"], {**nota_base, "valor": v, "valor_br": br_money(v)})
+                            ir["total_icms"] += icms
+                            ir["total_pis"] += pis
+                            ir["total_cofins"] += cofins
+                            ir["total_fust"] += fust
+                            ir["total_funttel"] += funttel
+                            ir["total_ibs"] += ibs
+                            ir["total_cbs"] += cbs
+                            ir["total_desc"] += v_desc
+                            ir["total_outro"] += v_outro
+                            add_note(ir["notas"], {**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
 
                     # --- Retenções (NFCom)
                     rtt = d.get("retencoes") or {}
@@ -1010,6 +1110,24 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             "cfop": cfop,
                             "v_total": cfop_data["v_total"],
                             "v_total_br": br_money(cfop_data["v_total"]),
+                            "total_icms": cfop_data["total_icms"],
+                            "total_pis": cfop_data["total_pis"],
+                            "total_cofins": cfop_data["total_cofins"],
+                            "total_fust": cfop_data["total_fust"],
+                            "total_funttel": cfop_data["total_funttel"],
+                            "total_ibs": cfop_data["total_ibs"],
+                            "total_cbs": cfop_data["total_cbs"],
+                            "total_desc": cfop_data["total_desc"],
+                            "total_outro": cfop_data["total_outro"],
+                            "total_icms_br": br_money(cfop_data["total_icms"]),
+                            "total_pis_br": br_money(cfop_data["total_pis"]),
+                            "total_cofins_br": br_money(cfop_data["total_cofins"]),
+                            "total_fust_br": br_money(cfop_data["total_fust"]),
+                            "total_funttel_br": br_money(cfop_data["total_funttel"]),
+                            "total_ibs_br": br_money(cfop_data["total_ibs"]),
+                            "total_cbs_br": br_money(cfop_data["total_cbs"]),
+                            "total_desc_br": br_money(cfop_data["total_desc"]),
+                            "total_outro_br": br_money(cfop_data["total_outro"]),
                             "notas": cfop_data["notas"],
                         }
                     )
@@ -1020,6 +1138,24 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         "qtd_itens": rec["qtd_itens"],
                         "v_total": rec["v_total"],
                         "v_total_br": br_money(rec["v_total"]),
+                        "total_icms": rec["total_icms"],
+                        "total_pis": rec["total_pis"],
+                        "total_cofins": rec["total_cofins"],
+                        "total_fust": rec["total_fust"],
+                        "total_funttel": rec["total_funttel"],
+                        "total_ibs": rec["total_ibs"],
+                        "total_cbs": rec["total_cbs"],
+                        "total_desc": rec["total_desc"],
+                        "total_outro": rec["total_outro"],
+                        "total_icms_br": br_money(rec["total_icms"]),
+                        "total_pis_br": br_money(rec["total_pis"]),
+                        "total_cofins_br": br_money(rec["total_cofins"]),
+                        "total_fust_br": br_money(rec["total_fust"]),
+                        "total_funttel_br": br_money(rec["total_funttel"]),
+                        "total_ibs_br": br_money(rec["total_ibs"]),
+                        "total_cbs_br": br_money(rec["total_cbs"]),
+                        "total_desc_br": br_money(rec["total_desc"]),
+                        "total_outro_br": br_money(rec["total_outro"]),
                         "pct": 0.0,
                         "pct_br": "",
                         "cfops": sorted(cfops_list, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT],
@@ -1039,6 +1175,15 @@ def _process_zip_resumo(sid: str, zip_path: str):
             itens_linhas = list(by_item.values())
             for it in itens_linhas:
                 it["v_total_br"] = br_money(it["v_total"])
+                it["total_icms_br"] = br_money(it.get("total_icms"))
+                it["total_pis_br"] = br_money(it.get("total_pis"))
+                it["total_cofins_br"] = br_money(it.get("total_cofins"))
+                it["total_fust_br"] = br_money(it.get("total_fust"))
+                it["total_funttel_br"] = br_money(it.get("total_funttel"))
+                it["total_ibs_br"] = br_money(it.get("total_ibs"))
+                it["total_cbs_br"] = br_money(it.get("total_cbs"))
+                it["total_desc_br"] = br_money(it.get("total_desc"))
+                it["total_outro_br"] = br_money(it.get("total_outro"))
             itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT]
 
             # impostos_linhas

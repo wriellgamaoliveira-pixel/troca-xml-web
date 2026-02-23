@@ -113,7 +113,7 @@ function renderResumo(DATA){
     const arr = filteredSortedLinhas();
     if(arr.length===0){
       cclassBody.appendChild(el("tr",{},[
-        el("td",{colspan:"6", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum resultado encontrado para o filtro.</div>"})
+        el("td",{colspan:"15", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum resultado encontrado para o filtro.</div>"})
       ]));
       return;
     }
@@ -134,6 +134,15 @@ function renderResumo(DATA){
         el("td",{},[String(linha.desc||"")]),
         el("td",{class:"right"},[String(linha.qtd_itens ?? "")]),
         el("td",{class:"right"},[String(linha.v_total_br || moneyBR(linha.v_total))]),
+        el("td",{class:"right"},[String(linha.total_icms_br || moneyBR(linha.total_icms))]),
+        el("td",{class:"right"},[String(linha.total_pis_br || moneyBR(linha.total_pis))]),
+        el("td",{class:"right"},[String(linha.total_cofins_br || moneyBR(linha.total_cofins))]),
+        el("td",{class:"right"},[String(linha.total_fust_br || moneyBR(linha.total_fust))]),
+        el("td",{class:"right"},[String(linha.total_funttel_br || moneyBR(linha.total_funttel))]),
+        el("td",{class:"right"},[String(linha.total_ibs_br || moneyBR(linha.total_ibs))]),
+        el("td",{class:"right"},[String(linha.total_cbs_br || moneyBR(linha.total_cbs))]),
+        el("td",{class:"right"},[String(linha.total_desc_br || moneyBR(linha.total_desc))]),
+        el("td",{class:"right"},[String(linha.total_outro_br || moneyBR(linha.total_outro))]),
         el("td",{class:"right"},[String(linha.pct_br || "")]),
       ]);
       cclassBody.appendChild(row);
@@ -155,6 +164,15 @@ function renderResumo(DATA){
               el("th",{class:"center", style:"width:44px"},[""]),
               el("th",{},["CFOP"]),
               el("th",{class:"right"},["Valor"]),
+              el("th",{class:"right"},["ICMS"]),
+              el("th",{class:"right"},["PIS"]),
+              el("th",{class:"right"},["COFINS"]),
+              el("th",{class:"right"},["FUST"]),
+              el("th",{class:"right"},["FUNTTEL"]),
+              el("th",{class:"right"},["IBS"]),
+              el("th",{class:"right"},["CBS"]),
+              el("th",{class:"right"},["Desconto"]),
+              el("th",{class:"right"},["Outras"]),
             ])
           ]));
           const tb = el("tbody",{},[]);
@@ -170,6 +188,15 @@ function renderResumo(DATA){
               el("td",{class:"center"},[cfBtn]),
               el("td",{},[String(cfo.cfop||"")]),
               el("td",{class:"right"},[String(cfo.v_total_br||"")]),
+              el("td",{class:"right"},[String(cfo.total_icms_br || moneyBR(cfo.total_icms))]),
+              el("td",{class:"right"},[String(cfo.total_pis_br || moneyBR(cfo.total_pis))]),
+              el("td",{class:"right"},[String(cfo.total_cofins_br || moneyBR(cfo.total_cofins))]),
+              el("td",{class:"right"},[String(cfo.total_fust_br || moneyBR(cfo.total_fust))]),
+              el("td",{class:"right"},[String(cfo.total_funttel_br || moneyBR(cfo.total_funttel))]),
+              el("td",{class:"right"},[String(cfo.total_ibs_br || moneyBR(cfo.total_ibs))]),
+              el("td",{class:"right"},[String(cfo.total_cbs_br || moneyBR(cfo.total_cbs))]),
+              el("td",{class:"right"},[String(cfo.total_desc_br || moneyBR(cfo.total_desc))]),
+              el("td",{class:"right"},[String(cfo.total_outro_br || moneyBR(cfo.total_outro))]),
             ]));
 
             if(cfOpen){
@@ -187,12 +214,21 @@ function renderResumo(DATA){
                   el("th",{},["Destinatário"]),
                   el("th",{},["Emissão"]),
                   el("th",{class:"right"},["Valor do item"]),
+                  el("th",{class:"right"},["ICMS"]),
+                  el("th",{class:"right"},["PIS"]),
+                  el("th",{class:"right"},["COFINS"]),
+                  el("th",{class:"right"},["FUST"]),
+                  el("th",{class:"right"},["FUNTTEL"]),
+                  el("th",{class:"right"},["IBS"]),
+                  el("th",{class:"right"},["CBS"]),
+                  el("th",{class:"right"},["Desconto"]),
+                  el("th",{class:"right"},["Outras"]),
                 ])
               ]));
               const ntb = el("tbody",{},[]);
               if(notas.length===0){
                 ntb.appendChild(el("tr",{},[
-                  el("td",{colspan:"6", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas</div>"})
+                  el("td",{colspan:"15", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas</div>"})
                 ]));
               }else{
                 notas.forEach(n => {
@@ -202,14 +238,23 @@ function renderResumo(DATA){
                     el("td",{},[String(n.xNome||"")]),
                     el("td",{},[String(n.xContato||"")]),
                     el("td",{},[String(n.dhEmi_fmt||"")]),
-                    el("td",{class:"right"},[String(n.vProd_br||"")]),
+                    el("td",{class:"right"},[String(n.valor_br||n.vProd_br||"")]),
+                    el("td",{class:"right"},[String(n.icms_br||moneyBR(n.icms))]),
+                    el("td",{class:"right"},[String(n.pis_br||moneyBR(n.pis))]),
+                    el("td",{class:"right"},[String(n.cofins_br||moneyBR(n.cofins))]),
+                    el("td",{class:"right"},[String(n.fust_br||moneyBR(n.fust))]),
+                    el("td",{class:"right"},[String(n.funttel_br||moneyBR(n.funttel))]),
+                    el("td",{class:"right"},[String(n.ibs_br||moneyBR(n.ibs))]),
+                    el("td",{class:"right"},[String(n.cbs_br||moneyBR(n.cbs))]),
+                    el("td",{class:"right"},[String(n.vDesc_br||moneyBR(n.vDesc))]),
+                    el("td",{class:"right"},[String(n.vOutro_br||moneyBR(n.vOutro))]),
                   ]));
                 });
               }
               nt.appendChild(ntb);
               notasWrap.appendChild(el("div",{class:"table-wrap"},[nt]));
               tb.appendChild(el("tr",{},[
-                el("td",{colspan:"3", class:"subrow"},[notasWrap])
+                el("td",{colspan:"12", class:"subrow"},[notasWrap])
               ]));
             }
           });
@@ -219,7 +264,7 @@ function renderResumo(DATA){
         }
 
         cclassBody.appendChild(el("tr",{},[
-          el("td",{colspan:"6", class:"subrow"},[wrap])
+          el("td",{colspan:"15", class:"subrow"},[wrap])
         ]));
       }
     });
@@ -274,7 +319,7 @@ function renderResumo(DATA){
     const arr = filteredSortedItems();
     if(arr.length===0){
       itemsBody.appendChild(el("tr",{},[
-        el("td",{colspan:"7", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum resultado encontrado para o filtro.</div>"})
+        el("td",{colspan:"16", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum resultado encontrado para o filtro.</div>"})
       ]));
       return;
     }
@@ -294,6 +339,15 @@ function renderResumo(DATA){
         el("td",{},[String(item.cClass||"")]),
         el("td",{class:"right"},[String(item.qtd_itens ?? "")]),
         el("td",{class:"right"},[String(item.v_total_br || moneyBR(item.v_total))]),
+        el("td",{class:"right"},[String(item.total_icms_br || moneyBR(item.total_icms))]),
+        el("td",{class:"right"},[String(item.total_pis_br || moneyBR(item.total_pis))]),
+        el("td",{class:"right"},[String(item.total_cofins_br || moneyBR(item.total_cofins))]),
+        el("td",{class:"right"},[String(item.total_fust_br || moneyBR(item.total_fust))]),
+        el("td",{class:"right"},[String(item.total_funttel_br || moneyBR(item.total_funttel))]),
+        el("td",{class:"right"},[String(item.total_ibs_br || moneyBR(item.total_ibs))]),
+        el("td",{class:"right"},[String(item.total_cbs_br || moneyBR(item.total_cbs))]),
+        el("td",{class:"right"},[String(item.total_desc_br || moneyBR(item.total_desc))]),
+        el("td",{class:"right"},[String(item.total_outro_br || moneyBR(item.total_outro))]),
         el("td",{class:"right"},[String(item.pct_br || "")]),
       ]));
 
@@ -312,12 +366,21 @@ function renderResumo(DATA){
             el("th",{},["Destinatário"]),
             el("th",{},["Emissão"]),
             el("th",{class:"right"},["Valor do item"]),
+            el("th",{class:"right"},["ICMS"]),
+            el("th",{class:"right"},["PIS"]),
+            el("th",{class:"right"},["COFINS"]),
+            el("th",{class:"right"},["FUST"]),
+            el("th",{class:"right"},["FUNTTEL"]),
+            el("th",{class:"right"},["IBS"]),
+            el("th",{class:"right"},["CBS"]),
+            el("th",{class:"right"},["Desconto"]),
+            el("th",{class:"right"},["Outras"]),
           ])
         ]));
         const tb = el("tbody",{},[]);
         if(notas.length===0){
           tb.appendChild(el("tr",{},[
-            el("td",{colspan:"6", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas</div>"})
+            el("td",{colspan:"15", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas</div>"})
           ]));
         }else{
           notas.forEach(n => {
@@ -327,7 +390,16 @@ function renderResumo(DATA){
               el("td",{},[String(n.xNome||"")]),
               el("td",{},[String(n.xContato||"")]),
               el("td",{},[String(n.dhEmi_fmt||"")]),
-              el("td",{class:"right"},[String(n.vProd_br||"")]),
+              el("td",{class:"right"},[String(n.valor_br||n.vProd_br||"")]),
+              el("td",{class:"right"},[String(n.icms_br||moneyBR(n.icms))]),
+              el("td",{class:"right"},[String(n.pis_br||moneyBR(n.pis))]),
+              el("td",{class:"right"},[String(n.cofins_br||moneyBR(n.cofins))]),
+              el("td",{class:"right"},[String(n.fust_br||moneyBR(n.fust))]),
+              el("td",{class:"right"},[String(n.funttel_br||moneyBR(n.funttel))]),
+              el("td",{class:"right"},[String(n.ibs_br||moneyBR(n.ibs))]),
+              el("td",{class:"right"},[String(n.cbs_br||moneyBR(n.cbs))]),
+              el("td",{class:"right"},[String(n.vDesc_br||moneyBR(n.vDesc))]),
+              el("td",{class:"right"},[String(n.vOutro_br||moneyBR(n.vOutro))]),
             ]));
           });
         }
@@ -335,7 +407,7 @@ function renderResumo(DATA){
         wrap.appendChild(el("div",{class:"table-wrap"},[t]));
 
         itemsBody.appendChild(el("tr",{},[
-          el("td",{colspan:"7", class:"subrow"},[wrap])
+          el("td",{colspan:"16", class:"subrow"},[wrap])
         ]));
       }
     });
