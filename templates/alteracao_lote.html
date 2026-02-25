@@ -5,6 +5,16 @@
 <h1 class="page-title">Alteração em Lote</h1>
 <p class="page-subtitle">Central de alterações em lote para XMLs.</p>
 
+<div style="max-width:720px;margin-bottom:12px;">
+  <select id="tipoAlteracao" class="form-select" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:#fff;">
+    <option value="">Selecione o tipo de alteração</option>
+    <option value="cclass">Alteração por cClass / CFOP</option>
+    <option value="descricao">Alteração por Descrição</option>
+    <option value="icms">Remover CFOP por ICMS</option>
+  </select>
+</div>
+
+<div id="bloco-cclass" style="display:none;">
 <div class="card">
   <div class="card-header"><h2 class="card-title">Alteração por cClass / CFOP</h2></div>
   <div class="card-content">
@@ -53,7 +63,9 @@
     </div>
   </div>
 </div>
+</div>
 
+<div id="bloco-descricao" style="display:none;">
 <div class="card">
   <div class="card-header"><h2 class="card-title">Alteração por Descrição</h2></div>
   <div class="card-content">
@@ -78,7 +90,9 @@
     </div>
   </div>
 </div>
+</div>
 
+<div id="bloco-icms" style="display:none;">
 <div class="card">
   <div class="card-header"><h2 class="card-title">Remover CFOP por ICMS</h2></div>
   <div class="card-content">
@@ -103,9 +117,31 @@
     </div>
   </div>
 </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
+<script>
+document.getElementById("tipoAlteracao").addEventListener("change", function() {
+    const valor = this.value;
+
+    document.getElementById("bloco-cclass").style.display = "none";
+    document.getElementById("bloco-descricao").style.display = "none";
+    document.getElementById("bloco-icms").style.display = "none";
+
+    if (valor === "cclass") {
+        document.getElementById("bloco-cclass").style.display = "block";
+    }
+
+    if (valor === "descricao") {
+        document.getElementById("bloco-descricao").style.display = "block";
+    }
+
+    if (valor === "icms") {
+        document.getElementById("bloco-icms").style.display = "block";
+    }
+});
+</script>
 <script>
 (() => {
   const form = document.getElementById('loteForm');
