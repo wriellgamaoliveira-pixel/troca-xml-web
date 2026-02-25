@@ -931,18 +931,31 @@ def nota_page():
 def resumo_page():
     return render_template("resumo.html")
 
-@app.route("/resumo/resultado")
-def resumo_resultado_page():
-    # Busca pelo session_id da sessão
+
+
+def _get_resumo_data_from_session():
     sid = session.get("resumo_session_id")
-    data = None
-    if sid:
-        data = r_get_json(f"resumo:data:{sid}")
+    data = r_get_json(f"resumo:data:{sid}") if sid else None
     if not data:
-        # fallback: exemplo
         data = gerar_dados_exemplo()
     validar_integridade(data)
-    return render_template("resumo_resultado.html", data=data)
+    return data
+@app.route("/resumo/resultado")
+def resumo_resultado_page():
+    data = _get_resumo_data_from_session()
+    return render_template("resumo_cclass.html", data=data)
+
+
+@app.route("/resumo-cclass")
+def resumo_cclass_page():
+    data = _get_resumo_data_from_session()
+    return render_template("resumo_cclass.html", data=data)
+
+
+@app.route("/resumo-imposto")
+def resumo_imposto_page():
+    data = _get_resumo_data_from_session()
+    return render_template("resumo_imposto.html", data=data)
 
 @app.route("/resumo/csv")
 def resumo_csv_page():

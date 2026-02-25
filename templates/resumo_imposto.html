@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Relatório por Imposto - Troca XML{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  <div>
+    <h1 class="page-title">Relatório por Imposto</h1>
+    <p class="page-subtitle">Visualização de impostos retidos e totais por CST ICMS</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">
+      <i data-lucide="printer"></i> Imprimir
+    </button>
+  </div>
+</div>
+
+{% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
+<div class="card" id="cardImpostosRetidos">
+  <div class="card-header">
+    <div class="controls">
+      <div>
+        <h2 class="card-title" style="margin:0;">Tabela de Impostos Retidos (vRetTribTot)</h2>
+        <div style="margin-top:6px;color:var(--muted);font-size:13px;">Total retido: {{ data.total_impostos_br }}</div>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="impExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="impFilter" placeholder="Filtrar por tipo de imposto...">
+        </div>
+        <select class="select" id="impSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Tipo de Imposto</th>
+            <th class="right">Qtd Notas</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="impBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" id="cardTotalCstIcms">
+  <div class="card-header"><h2 class="card-title">Total por CST ICMS</h2></div>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>CST ICMS</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">ICMS</th>
+            <th class="right">PIS</th>
+            <th class="right">COFINS</th>
+            <th class="right">FUST</th>
+            <th class="right">FUNTTEL</th>
+            <th class="right">IBS</th>
+            <th class="right">CBS</th>
+            <th class="right">Desconto</th>
+            <th class="right">Outras</th>
+          </tr>
+        </thead>
+        <tbody id="cstIcmsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.__RESUMO_DATA__ = {{ data|tojson }};
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/resumo.js') }}"></script>
+{% endblock %}

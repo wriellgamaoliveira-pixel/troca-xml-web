@@ -18,7 +18,8 @@
         <div class="nav-links">
           <a class="nav-link {% if request.path=='/' %}active{% endif %}" href="{{ url_for('index') }}"><i data-lucide="home" class="nav-icon"></i> Início</a>
           <a class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}" href="{{ url_for('nota_page') }}"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
-          <a class="nav-link {% if request.path.startswith('/resumo') %}active{% endif %}" href="{{ url_for('resumo_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-cclass') or request.path.startswith('/resumo/resultado') or request.path=='/resumo' %}active{% endif %}" href="{{ url_for('resumo_cclass_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Relatório por cClass</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-imposto') %}active{% endif %}" href="{{ url_for('resumo_imposto_page') }}"><i data-lucide="receipt-text" class="nav-icon"></i> Relatório por Imposto</a>
           <a class="nav-link {% if request.path.startswith('/alteracao-lote') %}active{% endif %}" href="{{ url_for('alteracao_lote_page') }}"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
         </div>
       </div>

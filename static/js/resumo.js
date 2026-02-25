@@ -647,15 +647,19 @@ function renderResumo(DATA){
     }
   }
 
-  tabBtnCclass?.addEventListener("click", ()=>setTab("cclass"));
-  tabBtnImposto?.addEventListener("click", ()=>setTab("imposto"));
+  if(tabBtnCclass && tabBtnImposto){
+    tabBtnCclass.addEventListener("click", ()=>setTab("cclass"));
+    tabBtnImposto.addEventListener("click", ()=>setTab("imposto"));
+  }
 
   // render initial
   redrawC();
   redrawItems();
   redrawCstIcms();
   redrawImp();
-  setTab("cclass");
+  if(tabBtnCclass && tabBtnImposto){
+    setTab("cclass");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
