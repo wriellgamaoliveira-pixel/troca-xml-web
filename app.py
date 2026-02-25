@@ -539,9 +539,9 @@ def parse_xml_any(xml_bytes: bytes):
 def index():
     return render_template("index.html")
 
-@app.route("/sessao")
-def sessao_page():
-    return render_template("sessao.html")
+@app.route("/alteracao-lote")
+def alteracao_lote_page():
+    return render_template("alteracao_lote.html")
 
 
 def _set_sessao_status(sid, **kw):
@@ -719,10 +719,6 @@ def api_sessao_baixar(sid):
 def nota_page():
     return render_template("nota.html")
 
-@app.route("/lote")
-def lote_page():
-    return render_template("lote.html")
-
 @app.route("/resumo")
 def resumo_page():
     return render_template("resumo.html")
@@ -771,10 +767,6 @@ def resumo_csv_page():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=resumo.csv"},
     )
-
-@app.route("/csv")
-def csv_page():
-    return render_template("csv.html")
 
 # =========================================================
 # Lote assíncrono (com progresso + taxa)

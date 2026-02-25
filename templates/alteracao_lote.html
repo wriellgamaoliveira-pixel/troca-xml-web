@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}Alteração em Lote - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Alteração em Lote</h1>
+<p class="page-subtitle">Central de alterações em lote para XMLs.</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Alteração por cClass / CFOP</h2></div>
+  <div class="card-content">
+    <form id="loteForm" style="display:grid;gap:12px;max-width:720px;">
+      <input class="input" type="file" id="zipLote" name="zip_xmls" accept=".zip" required>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <label class="pill"><input type="checkbox" id="removerDesconto">&nbsp;Remover desconto</label>
+        <label class="pill"><input type="checkbox" id="removerOutros">&nbsp;Remover outros</label>
+      </div>
+
+      <div id="sugestoesBox" class="note" style="display:none;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="flex:1;min-width:180px;">
+            <label class="label">cClass do Resumo</label>
+            <select class="input" id="selCClass"></select>
+          </div>
+          <div style="flex:1;min-width:180px;">
+            <label class="label">CFOP do Resumo</label>
+            <select class="input" id="selCFOP"></select>
+          </div>
+          <button class="btn btn-outline" type="button" id="btnAddRegra">
+            <i data-lucide="plus"></i> Adicionar regra
+          </button>
+        </div>
+      </div>
+
+      <textarea class="input" id="regrasTexto" rows="6" placeholder="Regras (uma por linha): cClass;CFOP"></textarea>
+
+      <button class="btn" type="submit" id="btnProcessar"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+
+    <div id="loteProgress" class="note" style="display:none;margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="lotePct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="loteBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="loteInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+      <div id="loteRate" style="margin-top:4px;color:var(--muted);font-size:13px;">Taxa: -- XML/s</div>
+    </div>
+
+    <div id="loteOut" class="note" style="display:none; margin-top:12px;">
+      <div id="loteResumo" style="margin-bottom:8px;"></div>
+      <a class="btn btn-outline" id="btnDownloadLote" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Alteração por Descrição</h2></div>
+  <div class="card-content">
+    <form id="csvForm" style="display:grid;gap:12px;max-width:720px;">
+      <input class="input" type="file" id="zipCsv" name="zip_xmls" accept=".zip" required>
+      <textarea class="input" id="regras" rows="8" placeholder="Regras (uma por linha): descricao;cClass\nEx:\nGOV SCI 10MBPS;0600601\nINTERNET DEDICADA;0700707" required></textarea>
+      <button class="btn" type="submit" id="btnProcessarCsv"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+
+    <div id="csvProgress" class="note" style="display:none; margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="csvPct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="csvBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="csvInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+    </div>
+
+    <div id="csvOut" class="note" style="display:none; margin-top:12px;">
+      <div id="csvResumo" style="margin-bottom:8px;"></div>
+      <a class="btn btn-outline" id="btnDownloadCsv" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Remover CFOP por ICMS</h2></div>
+  <div class="card-content">
+    <form id="sessaoForm" style="display:grid;gap:12px;max-width:720px;">
+      <input class="input" type="file" id="zipSessao" name="zip_xmls" accept=".zip" required>
+      <input class="input" type="text" id="icmsTipo" value="ICMS90" placeholder="Tipo ICMS (ex: ICMS90)" required>
+      <button class="btn" type="submit" id="btnProcessarSessao"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+
+    <div id="sessaoProgress" class="note" style="display:none; margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="sessaoPct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="sessaoBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="sessaoInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+    </div>
+
+    <div id="sessaoOut" class="note" style="display:none; margin-top:12px;">
+      <div id="sessaoResumo" style="margin-bottom:8px;"></div>
+      <a class="btn btn-outline" id="btnDownloadSessao" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const form = document.getElementById('loteForm');
+  const box = document.getElementById('sugestoesBox');
+  const selC = document.getElementById('selCClass');
+  const selF = document.getElementById('selCFOP');
+  const btnAdd = document.getElementById('btnAddRegra');
+  const regras = document.getElementById('regrasTexto');
+  const out = document.getElementById('loteOut');
+  const btn = document.getElementById('btnDownloadLote');
+  const progress = document.getElementById('loteProgress');
+  const lotePct = document.getElementById('lotePct');
+  const loteBar = document.getElementById('loteBar');
+  const loteInfo = document.getElementById('loteInfo');
+  const loteRate = document.getElementById('loteRate');
+  const loteResumo = document.getElementById('loteResumo');
+  const btnProcessar = document.getElementById('btnProcessar');
+
+  function updateProgress(pct, info, rate){
+    const value = Math.max(0, Math.min(100, Number(pct || 0)));
+    lotePct.textContent = `${value}%`;
+    loteBar.style.width = `${value}%`;
+    loteInfo.textContent = info || 'Processando...';
+    loteRate.textContent = `Taxa: ${Number(rate || 0).toFixed(2)} XML/s`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/lote/status/${sessionId}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar progresso');
+      const total = j.total || 0;
+      const processed = j.processed || 0;
+      const changed = Number(j.changed_files || 0);
+      const changedPct = Number(j.changed_pct || 0).toFixed(2);
+      updateProgress(j.progress || 0, `Status: ${j.status || 'running'} | Processados: ${processed}/${total} | Alterados: ${changed} (${changedPct}%)`, j.rate_xml_s || 0);
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        btn.href = `/api/lote/baixar/${sessionId}`;
+        loteResumo.textContent = `Arquivos alterados: ${j.changed_files || 0} (${Number(j.changed_pct || 0).toFixed(2)}%) | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 700));
+    }
+  }
+
+  (async ()=>{
+    try{
+      const r = await fetch('/api/resumo/choices');
+      if(!r.ok) return;
+      const j = await r.json();
+      if(!j.success) return;
+      const cclass = (j.choices && j.choices.cclass) || [];
+      const cfop = (j.choices && j.choices.cfop) || [];
+      if(cclass.length===0 && cfop.length===0) return;
+      selC.innerHTML = cclass.map(v=>`<option value="${v}">${v}</option>`).join('');
+      selF.innerHTML = cfop.map(v=>`<option value="${v}">${v}</option>`).join('');
+      box.style.display = 'block';
+    }catch(e){}
+  })();
+
+  btnAdd?.addEventListener('click', ()=>{
+    const c = selC?.value; const f = selF?.value;
+    if(!c || !f) return alert('Selecione cClass e CFOP');
+    const line = `${c};${f}`;
+    const cur = (regras.value || '').trim();
+    regras.value = cur ? (cur + '\n' + line) : line;
+  });
+
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = document.getElementById('zipLote').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    out.style.display='none'; progress.style.display='block'; updateProgress(0,'Iniciando...',0); btnProcessar.disabled=true;
+    const fd = new FormData();
+    fd.append('zip_xmls', f);
+    fd.append('remover_desconto', document.getElementById('removerDesconto').checked ? 'true':'false');
+    fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true':'false');
+    fd.append('regras_cclass_cfop', document.getElementById('regrasTexto').value || '');
+    try{
+      const r = await fetch('/api/lote/processar', {method:'POST', body: fd});
+      const j = await r.json();
+      if(!j.success) return alert(j.error || 'Erro');
+      await pollStatus(j.session_id);
+    }catch(err){ alert(err.message || 'Erro ao processar lote'); }
+    finally{ btnProcessar.disabled=false; }
+  });
+})();
+</script>
+
+<script>
+(() => {
+  const form = document.getElementById('csvForm');
+  const out = document.getElementById('csvOut');
+  const resumo = document.getElementById('csvResumo');
+  const btnDownload = document.getElementById('btnDownloadCsv');
+  const btnProcessar = document.getElementById('btnProcessarCsv');
+  const progress = document.getElementById('csvProgress');
+  const csvPct = document.getElementById('csvPct');
+  const csvBar = document.getElementById('csvBar');
+  const csvInfo = document.getElementById('csvInfo');
+
+  function updateProgress(percentual, processados, total, status){
+    const p = Math.max(0, Math.min(100, Number(percentual || 0)));
+    csvPct.textContent = `${p}%`;
+    csvBar.style.width = `${p}%`;
+    csvInfo.textContent = `Status: ${status || 'running'} | Processados: ${processados || 0}/${total || 0}`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/lote-descricao/status?session_id=${encodeURIComponent(sessionId)}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+      updateProgress(j.percentual, j.processados, j.total, j.status);
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        btnDownload.href = `/api/csv/baixar/${sessionId}`;
+        resumo.textContent = `XMLs: ${j.total || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 2000));
+    }
+  }
+
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = document.getElementById('zipCsv').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    const regras = (document.getElementById('regras').value || '').trim();
+    if(!regras) return alert('Informe ao menos uma regra no formato descricao;cClass');
+    out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
+    const fd = new FormData();
+    fd.append('zip_xmls', f);
+    fd.append('regras_descricao_cclass', regras);
+    try{
+      const r = await fetch('/api/csv/gerar', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success) return alert(j.error || 'Erro ao iniciar processamento do lote por descrição');
+      await pollStatus(j.session_id);
+    }catch(err){ alert(err.message || 'Erro ao processar lote por descrição'); }
+    finally{ btnProcessar.disabled=false; }
+  });
+})();
+</script>
+
+<script>
+(() => {
+  const form = document.getElementById('sessaoForm');
+  const progress = document.getElementById('sessaoProgress');
+  const pctEl = document.getElementById('sessaoPct');
+  const barEl = document.getElementById('sessaoBar');
+  const infoEl = document.getElementById('sessaoInfo');
+  const out = document.getElementById('sessaoOut');
+  const resumo = document.getElementById('sessaoResumo');
+  const btnDownload = document.getElementById('btnDownloadSessao');
+  const btnProcessar = document.getElementById('btnProcessarSessao');
+
+  function updateProgress(percentual, processados, total, status){
+    const p = Math.max(0, Math.min(100, Number(percentual || 0)));
+    pctEl.textContent = `${p}%`;
+    barEl.style.width = `${p}%`;
+    infoEl.textContent = `Status: ${status || 'running'} | Processados: ${processados || 0}/${total || 0}`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/sessao/status/${sessionId}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+      updateProgress(j.percentual, j.processados, j.total, j.status);
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        btnDownload.href = `/api/sessao/baixar/${sessionId}`;
+        resumo.textContent = `Tipo ICMS: ${j.icms_tipo || '-'} | XMLs: ${j.total || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 2000));
+    }
+  }
+
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = document.getElementById('zipSessao').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    const icmsTipo = (document.getElementById('icmsTipo').value || '').trim();
+    if(!icmsTipo) return alert('Informe um tipo ICMS.');
+    out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
+    const fd = new FormData(); fd.append('zip_xmls', f); fd.append('icms_tipo', icmsTipo);
+    try{
+      const r = await fetch('/api/sessao/processar', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success) return alert(j.error || 'Erro ao iniciar processamento');
+      await pollStatus(j.session_id);
+    }catch(err){ alert(err.message || 'Erro ao processar lote'); }
+    finally{ btnProcessar.disabled=false; }
+  });
+})();
+</script>
+{% endblock %}
