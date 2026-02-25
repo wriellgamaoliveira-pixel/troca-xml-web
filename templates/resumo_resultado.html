@@ -62,7 +62,15 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" id="resumoTabsCard">
+  <div class="card-content" style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" id="tabBtnCclass" class="btn btn-sm">Relatório por cClass</button>
+    <button type="button" id="tabBtnImposto" class="btn btn-outline btn-sm">Relatório por Imposto</button>
+  </div>
+</div>
+
+<div id="tabCclassPanel">
+<div class="card" id="cardRelCclass">
   <div class="card-header">
     <div class="controls">
       <div style="display:flex;align-items:center;gap:12px;flex:1;">
@@ -116,15 +124,16 @@
     </div>
   </div>
 </div>
+</div>
 
-
-<div class="card">
+<div class="card" id="cardTotalCstIcms">
   <div class="card-header"><h2 class="card-title">Total por CST ICMS</h2></div>
   <div class="card-content">
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th class="center" style="width:44px;"></th>
             <th>CST ICMS</th>
             <th class="right">Qtd Itens</th>
             <th class="right">Valor Total</th>
@@ -145,7 +154,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" id="cardItensTodos">
   <div class="card-header">
     <div class="controls">
       <h2 class="card-title" style="margin:0;">Tabela de Itens (Todos)</h2>
@@ -199,8 +208,9 @@
   </div>
 </div>
 
+<div id="tabImpostoPanel" style="display:none;">
 {% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
-<div class="card">
+<div class="card" id="cardImpostosRetidos">
   <div class="card-header">
     <div class="controls">
       <div>
@@ -245,6 +255,7 @@
   </div>
 </div>
 {% endif %}
+</div>
 
 <script>
   window.__RESUMO_DATA__ = {{ data|tojson }};

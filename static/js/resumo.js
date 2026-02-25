@@ -425,6 +425,8 @@ function renderResumo(DATA){
 
   // ---------------- Total por CST ICMS ----------------
   const cstIcmsBody = document.getElementById("cstIcmsBody");
+  let expandedCst = new Set();
+  function cstKey(i){ return `cst:${i}`; }
 
   function redrawCstIcms(){
     if(!cstIcmsBody) return;
@@ -432,13 +434,21 @@ function renderResumo(DATA){
     const arr = (DATA.totais_cst_icms_linhas || []);
     if(arr.length===0){
       cstIcmsBody.appendChild(el("tr",{},[
-        el("td",{colspan:"12", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Sem dados de CST ICMS.</div>"})
+        el("td",{colspan:"13", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Sem dados de CST ICMS.</div>"})
       ]));
       return;
     }
 
-    arr.forEach((cst) => {
+    arr.forEach((cst, idx) => {
+      const key = cstKey(idx);
+      const open = expandedCst.has(key);
+      const btn = el("button",{class:"chev-btn", onClick:(ev)=>{ ev.stopPropagation();
+        if(expandedCst.has(key)) expandedCst.delete(key); else expandedCst.add(key);
+        redrawCstIcms();
+      }},[ icon(open ? "chevron-down":"chevron-right") ]);
+
       cstIcmsBody.appendChild(el("tr",{},[
+        el("td",{class:"center"},[btn]),
         el("td",{},[String(cst.tipo_icms || "indSemCST")]),
         el("td",{class:"right"},[String(cst.qtd_itens ?? "")]),
         el("td",{class:"right"},[String(cst.v_total_br || moneyBR(cst.v_total))]),
@@ -452,7 +462,49 @@ function renderResumo(DATA){
         el("td",{class:"right"},[String(cst.total_desc_br || moneyBR(cst.total_desc))]),
         el("td",{class:"right"},[String(cst.total_outro_br || moneyBR(cst.total_outro))]),
       ]));
+
+      if(open){
+        const notas = cst.notas || [];
+        const wrap = el("div",{class:"subcard"},[
+          el("div",{class:"subtitle"},["Notas fiscais relacionadas"])
+        ]);
+        const t = el("table",{},[]);
+        t.style.minWidth = "980px";
+        t.appendChild(el("thead",{},[
+          el("tr",{},[
+            el("th",{},["nNF"]),
+            el("th",{},["Contrato (cNF)"]),
+            el("th",{},["Emitente"]),
+            el("th",{},["Destinatário"]),
+            el("th",{},["Emissão"]),
+            el("th",{class:"right"},["Valor do item"]),
+            el("th",{class:"right"},["ICMS"]),
+            el("th",{class:"right"},["PIS"]),
+            el("th",{class:"right"},["COFINS"]),
+            el("th",{class:"right"},["FUST"]),
+            el("th",{class:"right"},["FUNTTEL"]),
+            el("th",{class:"right"},["IBS"]),
+            el("th",{class:"right"},["CBS"]),
+            el("th",{class:"right"},["Desconto"]),
+            el("th",{class:"right"},["Outras"]),
+          ])
+        ]));
+        const tb = el("tbody",{},[]);
+        if(notas.length===0){
+          tb.appendChild(el("tr",{},[
+            el("td",{colspan:"15", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas relacionadas</div>"})
+          ]));
+        }
+        t.appendChild(tb);
+        wrap.appendChild(el("div",{class:"table-wrap"},[t]));
+
+        cstIcmsBody.appendChild(el("tr",{},[
+          el("td",{colspan:"13", class:"subrow"},[wrap])
+        ]));
+      }
     });
+
+    if (window.lucide && typeof window.lucide.createIcons === "function") window.lucide.createIcons();
   }
 
   // ---------------- Impostos Table ----------------
@@ -570,11 +622,40 @@ function renderResumo(DATA){
   impExpand?.addEventListener("click", expandAllImp);
   impCollapse?.addEventListener("click", collapseAllImp);
 
+  // ---------------- Tabs ----------------
+  const tabBtnCclass = document.getElementById("tabBtnCclass");
+  const tabBtnImposto = document.getElementById("tabBtnImposto");
+  const cardRelCclass = document.getElementById("cardRelCclass");
+  const cardItensTodos = document.getElementById("cardItensTodos");
+  const cardTotalCstIcms = document.getElementById("cardTotalCstIcms");
+  const tabImpostoPanel = document.getElementById("tabImpostoPanel");
+
+  function setTab(tab){
+    const isCclass = tab === "cclass";
+    if(cardRelCclass) cardRelCclass.style.display = isCclass ? "" : "none";
+    if(cardItensTodos) cardItensTodos.style.display = isCclass ? "" : "none";
+    if(cardTotalCstIcms) cardTotalCstIcms.style.display = isCclass ? "none" : "";
+    if(tabImpostoPanel) tabImpostoPanel.style.display = isCclass ? "none" : "";
+
+    if(tabBtnCclass){
+      tabBtnCclass.classList.toggle("btn-outline", !isCclass);
+      tabBtnCclass.classList.toggle("btn-primary", isCclass);
+    }
+    if(tabBtnImposto){
+      tabBtnImposto.classList.toggle("btn-outline", isCclass);
+      tabBtnImposto.classList.toggle("btn-primary", !isCclass);
+    }
+  }
+
+  tabBtnCclass?.addEventListener("click", ()=>setTab("cclass"));
+  tabBtnImposto?.addEventListener("click", ()=>setTab("imposto"));
+
   // render initial
   redrawC();
   redrawItems();
   redrawCstIcms();
   redrawImp();
+  setTab("cclass");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
