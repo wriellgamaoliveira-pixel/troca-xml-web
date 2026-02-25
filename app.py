@@ -190,6 +190,28 @@ def _icms_vals(imposto, ns):
     vicms = get_text(icms_node, './/nfe:vICMS', ns)
     return vbc, picms, vicms
 
+def _detect_icms_tipo(imposto):
+    if imposto is None:
+        return "indSemCST"
+
+    for child in imposto:
+        if not isinstance(child.tag, str):
+            continue
+        tag_name = child.tag.split('}')[-1]
+        if tag_name.startswith('ICMS'):
+            return tag_name
+
+    icms_group = imposto.find('.//ICMS')
+    if icms_group is not None:
+        for child in icms_group:
+            if isinstance(child.tag, str):
+                tag_name = child.tag.split('}')[-1]
+                if tag_name.startswith('ICMS'):
+                    return tag_name
+
+    return "indSemCST"
+
+
 
 def parse_nfcom_xml(xml_bytes: bytes):
     root = etree.fromstring(xml_bytes)
@@ -267,6 +289,7 @@ def parse_nfcom_xml(xml_bytes: bytes):
         vpis = safe_float(get_text(pis, './/nfe:vPIS', ns)) if pis is not None else 0.0
         vcofins = safe_float(get_text(cofins, './/nfe:vCOFINS', ns)) if cofins is not None else 0.0
         vbc, picms, vicms = _icms_vals(imposto, ns)
+        tipo_icms = _detect_icms_tipo(imposto)
 
         itens.append({
             'cClass': '' if cClass == '0.00' else cClass,
@@ -297,6 +320,7 @@ def parse_nfcom_xml(xml_bytes: bytes):
             'vCBS': br_money(v_cbs),
             'ibs_cbs': f"{br_money(v_ibs)}/{br_money(v_cbs)}",
             'icms': vicms,
+            'tipo_icms': tipo_icms,
         })
 
     print('IRRF:', ret_irrf)
@@ -431,6 +455,7 @@ def parse_nfe_xml(xml_bytes: bytes):
         vpis = safe_float(get_text(pis, './/nfe:vPIS', ns)) if pis is not None else 0.0
         vcofins = safe_float(get_text(cofins, './/nfe:vCOFINS', ns)) if cofins is not None else 0.0
         vbc, picms, vicms = _icms_vals(imposto, ns)
+        tipo_icms = _detect_icms_tipo(imposto)
 
         itens.append({
             'cClass': '' if cClass == '0.00' else cClass,
@@ -461,6 +486,7 @@ def parse_nfe_xml(xml_bytes: bytes):
             'vCBS': br_money(v_cbs),
             'ibs_cbs': f"{br_money(v_ibs)}/{br_money(v_cbs)}",
             'icms': vicms,
+            'tipo_icms': tipo_icms,
         })
 
     print('IRRF:', ret_irrf)
@@ -1247,6 +1273,20 @@ def _process_zip_resumo(sid: str, zip_path: str):
             # cClass -> {desc,qtd_itens,v_total, cfops{cfop->{v_total,notas[]}}}
             by_cclass = {}
             by_item = {}    # (cProd,cClass,desc) -> {item,desc,cClass,qtd_itens,v_total, notas:[]}
+            totais_cst_icms = defaultdict(lambda: {
+                "tipo_icms": "indSemCST",
+                "qtd_itens": 0,
+                "v_total": 0.0,
+                "total_icms": 0.0,
+                "total_pis": 0.0,
+                "total_cofins": 0.0,
+                "total_fust": 0.0,
+                "total_funttel": 0.0,
+                "total_ibs": 0.0,
+                "total_cbs": 0.0,
+                "total_desc": 0.0,
+                "total_outro": 0.0,
+            })
             impostos = {"PIS Ret.": 0.0, "COFINS Ret.": 0.0, "CSLL Ret.": 0.0, "IRRF Ret.": 0.0}
             impostos_notas = {"PIS Ret.": [], "COFINS Ret.": [], "CSLL Ret.": [], "IRRF Ret.": []}
 
@@ -1283,6 +1323,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
                     for it in itens:
                         cClass = (it.get("cClass") or "").strip()
                         cfop = (it.get("CFOP") or "").strip()
+                        if not cfop:
+                            cfop = "SEM CFOP"
                         cProd = (it.get("cProd") or "").strip()
                         xProd = (it.get("xProd") or "").strip()
                         v = float(it.get("vProd") or 0.0)
@@ -1295,6 +1337,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                         cbs = num_any(it.get("vCBS"))
                         v_desc = num_any(it.get("vDesc"))
                         v_outro = num_any(it.get("vOutro"))
+                        tipo_icms = (it.get("tipo_icms") or "indSemCST").strip() or "indSemCST"
                         nota_metricas = {
                             "icms": icms,
                             "pis": pis,
@@ -1365,20 +1408,19 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             rec["total_desc"] += v_desc
                             rec["total_outro"] += v_outro
 
-                            if cfop:
-                                cfop_rec = rec["cfops"][cfop]
-                                cfop_rec["v_total"] += v
-                                cfop_rec["total_icms"] += icms
-                                cfop_rec["total_pis"] += pis
-                                cfop_rec["total_cofins"] += cofins
-                                cfop_rec["total_fust"] += fust
-                                cfop_rec["total_funttel"] += funttel
-                                cfop_rec["total_ibs"] += ibs
-                                cfop_rec["total_cbs"] += cbs
-                                cfop_rec["total_desc"] += v_desc
-                                cfop_rec["total_outro"] += v_outro
-                                cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
-                                total_processadas += 1
+                            cfop_rec = rec["cfops"][cfop]
+                            cfop_rec["v_total"] += v
+                            cfop_rec["total_icms"] += icms
+                            cfop_rec["total_pis"] += pis
+                            cfop_rec["total_cofins"] += cofins
+                            cfop_rec["total_fust"] += fust
+                            cfop_rec["total_funttel"] += funttel
+                            cfop_rec["total_ibs"] += ibs
+                            cfop_rec["total_cbs"] += cbs
+                            cfop_rec["total_desc"] += v_desc
+                            cfop_rec["total_outro"] += v_outro
+                            cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
+                            total_processadas += 1
 
                         # --- Agrupa por item (cProd)
                         if cProd:
@@ -1415,6 +1457,21 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             ir["total_desc"] += v_desc
                             ir["total_outro"] += v_outro
                             add_note(ir["notas"], {**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
+
+                        # --- Total por CST ICMS
+                        cst_rec = totais_cst_icms[tipo_icms]
+                        cst_rec["tipo_icms"] = tipo_icms
+                        cst_rec["qtd_itens"] += 1
+                        cst_rec["v_total"] += v
+                        cst_rec["total_icms"] += icms
+                        cst_rec["total_pis"] += pis
+                        cst_rec["total_cofins"] += cofins
+                        cst_rec["total_fust"] += fust
+                        cst_rec["total_funttel"] += funttel
+                        cst_rec["total_ibs"] += ibs
+                        cst_rec["total_cbs"] += cbs
+                        cst_rec["total_desc"] += v_desc
+                        cst_rec["total_outro"] += v_outro
 
                     # --- Retenções (NFCom)
                     rtt = d.get("retencoes") or {}
@@ -1532,6 +1589,34 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 it["total_outro_br"] = br_money(it.get("total_outro"))
             itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT]
 
+            totais_cst_icms_linhas = []
+            for tipo_icms, rec in totais_cst_icms.items():
+                totais_cst_icms_linhas.append({
+                    "tipo_icms": tipo_icms,
+                    "qtd_itens": rec["qtd_itens"],
+                    "v_total": rec["v_total"],
+                    "v_total_br": br_money(rec["v_total"]),
+                    "total_icms": rec["total_icms"],
+                    "total_pis": rec["total_pis"],
+                    "total_cofins": rec["total_cofins"],
+                    "total_fust": rec["total_fust"],
+                    "total_funttel": rec["total_funttel"],
+                    "total_ibs": rec["total_ibs"],
+                    "total_cbs": rec["total_cbs"],
+                    "total_desc": rec["total_desc"],
+                    "total_outro": rec["total_outro"],
+                    "total_icms_br": br_money(rec["total_icms"]),
+                    "total_pis_br": br_money(rec["total_pis"]),
+                    "total_cofins_br": br_money(rec["total_cofins"]),
+                    "total_fust_br": br_money(rec["total_fust"]),
+                    "total_funttel_br": br_money(rec["total_funttel"]),
+                    "total_ibs_br": br_money(rec["total_ibs"]),
+                    "total_cbs_br": br_money(rec["total_cbs"]),
+                    "total_desc_br": br_money(rec["total_desc"]),
+                    "total_outro_br": br_money(rec["total_outro"]),
+                })
+            totais_cst_icms_linhas = sorted(totais_cst_icms_linhas, key=lambda x: x["v_total"], reverse=True)
+
             # impostos_linhas
             R = sum(impostos.values()) or 0.0
             impostos_linhas = []
@@ -1563,6 +1648,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 "valores": valores,
                 "linhas": sorted(linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT],
                 "itens_linhas": itens_linhas,
+                "totais_cst_icms_linhas": totais_cst_icms_linhas,
                 "impostos_linhas": impostos_linhas,
                 "debug": {
                     "total_xml": len(names),

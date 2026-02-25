@@ -154,9 +154,7 @@ function renderResumo(DATA){
           el("div",{class:"subtitle"},["CFOPs desta cClass"]),
         ]);
 
-        if(cfops.length===0){
-          wrap.appendChild(el("div",{class:"pill"},["Sem CFOPs detalhados"]));
-        }else{
+        {
           const t = el("table",{},[]);
           t.style.minWidth = "620px";
           t.appendChild(el("thead",{},[
@@ -259,6 +257,11 @@ function renderResumo(DATA){
             }
           });
 
+          if(cfops.length===0){
+            tb.appendChild(el("tr",{},[
+              el("td",{colspan:"12", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem registros</div>"})
+            ]));
+          }
           t.appendChild(tb);
           wrap.appendChild(el("div",{class:"table-wrap"},[t]));
         }
@@ -420,6 +423,38 @@ function renderResumo(DATA){
   itemsExpand?.addEventListener("click", expandAllItems);
   itemsCollapse?.addEventListener("click", collapseAllItems);
 
+  // ---------------- Total por CST ICMS ----------------
+  const cstIcmsBody = document.getElementById("cstIcmsBody");
+
+  function redrawCstIcms(){
+    if(!cstIcmsBody) return;
+    cstIcmsBody.innerHTML = "";
+    const arr = (DATA.totais_cst_icms_linhas || []);
+    if(arr.length===0){
+      cstIcmsBody.appendChild(el("tr",{},[
+        el("td",{colspan:"12", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Sem dados de CST ICMS.</div>"})
+      ]));
+      return;
+    }
+
+    arr.forEach((cst) => {
+      cstIcmsBody.appendChild(el("tr",{},[
+        el("td",{},[String(cst.tipo_icms || "indSemCST")]),
+        el("td",{class:"right"},[String(cst.qtd_itens ?? "")]),
+        el("td",{class:"right"},[String(cst.v_total_br || moneyBR(cst.v_total))]),
+        el("td",{class:"right"},[String(cst.total_icms_br || moneyBR(cst.total_icms))]),
+        el("td",{class:"right"},[String(cst.total_pis_br || moneyBR(cst.total_pis))]),
+        el("td",{class:"right"},[String(cst.total_cofins_br || moneyBR(cst.total_cofins))]),
+        el("td",{class:"right"},[String(cst.total_fust_br || moneyBR(cst.total_fust))]),
+        el("td",{class:"right"},[String(cst.total_funttel_br || moneyBR(cst.total_funttel))]),
+        el("td",{class:"right"},[String(cst.total_ibs_br || moneyBR(cst.total_ibs))]),
+        el("td",{class:"right"},[String(cst.total_cbs_br || moneyBR(cst.total_cbs))]),
+        el("td",{class:"right"},[String(cst.total_desc_br || moneyBR(cst.total_desc))]),
+        el("td",{class:"right"},[String(cst.total_outro_br || moneyBR(cst.total_outro))]),
+      ]));
+    });
+  }
+
   // ---------------- Impostos Table ----------------
   const impBody = document.getElementById("impBody");
   const impFilter = document.getElementById("impFilter");
@@ -538,6 +573,7 @@ function renderResumo(DATA){
   // render initial
   redrawC();
   redrawItems();
+  redrawCstIcms();
   redrawImp();
 }
 
