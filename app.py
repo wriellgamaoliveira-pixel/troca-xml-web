@@ -933,33 +933,37 @@ def resumo_page():
 
 
 
-def _get_resumo_data_from_session():
-    sid = session.get("resumo_session_id")
-    data = r_get_json(f"resumo:data:{sid}") if sid else None
+def _get_resumo_data(session_id=None):
+    sid = session_id or request.args.get("session_id")
+    if not sid:
+        return None, None
+    data = r_get_json(f"resumo:data:{sid}")
     if not data:
-        data = gerar_dados_exemplo()
+        return sid, None
     validar_integridade(data)
-    return data
+    return sid, data
+
+
 @app.route("/resumo/resultado")
 def resumo_resultado_page():
-    data = _get_resumo_data_from_session()
-    return render_template("resumo_cclass.html", data=data)
+    sid, data = _get_resumo_data(session.get("resumo_session_id"))
+    return render_template("resumo_cclass.html", data=data, session_id=sid)
 
 
 @app.route("/resumo-cclass")
 def resumo_cclass_page():
-    data = _get_resumo_data_from_session()
-    return render_template("resumo_cclass.html", data=data)
+    sid, data = _get_resumo_data()
+    return render_template("resumo_cclass.html", data=data, session_id=sid)
 
 
 @app.route("/resumo-imposto")
 def resumo_imposto_page():
-    data = _get_resumo_data_from_session()
-    return render_template("resumo_imposto.html", data=data)
+    sid, data = _get_resumo_data()
+    return render_template("resumo_imposto.html", data=data, session_id=sid)
 
 @app.route("/resumo/csv")
 def resumo_csv_page():
-    sid = session.get("resumo_session_id")
+    sid = request.args.get("session_id") or session.get("resumo_session_id")
     data = r_get_json(f"resumo:data:{sid}") if sid else None
     if not data:
         return jsonify({"success": False, "error": "Resumo não encontrado para exportação"}), 404
@@ -1696,6 +1700,10 @@ def api_resumo_upload():
         zip_path = os.path.join(UPLOADS_DIR, f"{sid}.zip")
         f.save(zip_path)
 
+        report_type = (request.form.get("report_type") or "cclass").strip().lower()
+        if report_type not in ("cclass", "imposto"):
+            report_type = "cclass"
+
         session["resumo_session_id"] = sid
         _set_status(sid, status="queued", progress=0, done=False, error=None, total=None, processed=0)
 
@@ -1715,7 +1723,11 @@ def api_resumo_status():
     if not st:
         return jsonify({"success": True, "status": "nao_encontrado", "done": True, "progress": 0})
     st["success"] = True
-    st["redirect"] = url_for("resumo_resultado_page")
+    report_type = (request.args.get("report_type") or "cclass").strip().lower()
+    if report_type == "imposto":
+        st["redirect"] = url_for("resumo_imposto_page", session_id=sid)
+    else:
+        st["redirect"] = url_for("resumo_cclass_page", session_id=sid)
     return jsonify(st)
 
 # =========================================================

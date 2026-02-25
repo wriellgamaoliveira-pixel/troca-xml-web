@@ -8,15 +8,26 @@
 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
   <div>
     <h1 class="page-title">Relatório por Imposto</h1>
-    <p class="page-subtitle">Visualização de impostos retidos e totais por CST ICMS</p>
+    <p class="page-subtitle">Processe um ZIP para gerar este relatório</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">
-      <i data-lucide="printer"></i> Imprimir
-    </button>
+    {% if session_id %}<a href="/resumo/csv?session_id={{ session_id }}" class="btn btn-outline btn-sm"><i data-lucide="file-spreadsheet"></i> Gerar CSV</a>{% endif %}
+    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()"><i data-lucide="printer"></i> Imprimir</button>
   </div>
 </div>
 
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Gerar Relatório</h2></div>
+  <div class="card-content">
+    <form id="resumoUploadForm" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;max-width:720px;">
+      <input class="input" type="file" id="resumoZip" name="file" accept=".zip" required>
+      <button class="btn" type="submit" id="btnResumoProcessar"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+    <div id="resumoProgress" class="note" style="display:none;margin-top:10px;">Iniciando processamento...</div>
+  </div>
+</div>
+
+{% if data %}
 {% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
 <div class="card" id="cardImpostosRetidos">
   <div class="card-header">
@@ -92,12 +103,63 @@
   </div>
 </div>
 
+{% endif %}
+
 <script>
-  window.__RESUMO_DATA__ = {{ data|tojson }};
+  window.__RESUMO_DATA__ = {{ (data or {})|tojson }};
+  window.__RESUMO_REPORT_TYPE__ = "imposto";
 </script>
 {% endblock %}
 
 {% block extra_js %}
+
+<script>
+(() => {
+  const form = document.getElementById('resumoUploadForm');
+  const progress = document.getElementById('resumoProgress');
+  const btn = document.getElementById('btnResumoProcessar');
+  if(!form) return;
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/resumo/status?session_id=${encodeURIComponent(sessionId)}&report_type=${encodeURIComponent(window.__RESUMO_REPORT_TYPE__ || 'cclass')}`, {cache:'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+      progress.textContent = `Status: ${j.status || 'running'} | Processados: ${j.processed || 0}/${j.total || 0} | Progresso: ${j.progress || 0}%`;
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        window.location.href = j.redirect;
+        return;
+      }
+      await new Promise(res=>setTimeout(res, 800));
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = document.getElementById('resumoZip').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('report_type', window.__RESUMO_REPORT_TYPE__ || 'cclass');
+    progress.style.display = 'block';
+    progress.textContent = 'Enviando arquivo...';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/resumo/upload', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success) throw new Error(j.error || 'Erro ao iniciar processamento');
+      await pollStatus(j.session_id);
+    } catch(err){
+      progress.textContent = err.message || 'Falha no processamento';
+      alert(err.message || 'Falha no processamento');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="{{ url_for('static', filename='js/resumo.js') }}"></script>
 {% endblock %}
