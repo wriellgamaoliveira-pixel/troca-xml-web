@@ -11,6 +11,7 @@
     <option value="cclass">Alteração por cClass / CFOP</option>
     <option value="descricao">Alteração por Descrição</option>
     <option value="icms">Remover CFOP por ICMS</option>
+    <option value="cclass_remove">Remover CFOP por cClass</option>
   </select>
 </div>
 
@@ -118,6 +119,33 @@
   </div>
 </div>
 </div>
+
+<div id="bloco-cclass-remove" style="display:none;">
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Remover CFOP por cClass</h2></div>
+  <div class="card-content">
+    <form id="cclassRemoveForm" style="display:grid;gap:12px;max-width:720px;">
+      <input class="input" type="file" id="zipCclassRemove" name="zip_xmls" accept=".zip" required>
+      <textarea class="input" id="listaCclass" rows="8" placeholder="Uma cClass por linha&#10;Ex:&#10;0600601&#10;0400201" required></textarea>
+      <button class="btn" type="submit" id="btnProcessarCclassRemove"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+
+    <div id="cclassRemoveProgress" class="note" style="display:none; margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <b>Processando lote...</b>
+        <span id="cclassRemovePct" style="font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar" style="margin-top:8px;"><div id="cclassRemoveBar" class="progress-fill" style="width:0%;"></div></div>
+      <div id="cclassRemoveInfo" style="margin-top:8px;color:var(--muted);font-size:13px;">Iniciando...</div>
+    </div>
+
+    <div id="cclassRemoveOut" class="note" style="display:none; margin-top:12px;">
+      <div id="cclassRemoveResumo" style="margin-bottom:8px;"></div>
+      <a class="btn btn-outline" id="btnDownloadCclassRemove" href="#"><i data-lucide="download"></i> Baixar ZIP</a>
+    </div>
+  </div>
+</div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -128,6 +156,7 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     document.getElementById("bloco-cclass").style.display = "none";
     document.getElementById("bloco-descricao").style.display = "none";
     document.getElementById("bloco-icms").style.display = "none";
+    document.getElementById("bloco-cclass-remove").style.display = "none";
 
     if (valor === "cclass") {
         document.getElementById("bloco-cclass").style.display = "block";
@@ -139,6 +168,10 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
 
     if (valor === "icms") {
         document.getElementById("bloco-icms").style.display = "block";
+    }
+
+    if (valor === "cclass_remove") {
+        document.getElementById("bloco-cclass-remove").style.display = "block";
     }
 });
 </script>
@@ -336,6 +369,64 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     const fd = new FormData(); fd.append('zip_xmls', f); fd.append('icms_tipo', icmsTipo);
     try{
       const r = await fetch('/api/sessao/processar', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success) return alert(j.error || 'Erro ao iniciar processamento');
+      await pollStatus(j.session_id);
+    }catch(err){ alert(err.message || 'Erro ao processar lote'); }
+    finally{ btnProcessar.disabled=false; }
+  });
+})();
+</script>
+
+<script>
+(() => {
+  const form = document.getElementById('cclassRemoveForm');
+  const progress = document.getElementById('cclassRemoveProgress');
+  const pctEl = document.getElementById('cclassRemovePct');
+  const barEl = document.getElementById('cclassRemoveBar');
+  const infoEl = document.getElementById('cclassRemoveInfo');
+  const out = document.getElementById('cclassRemoveOut');
+  const resumo = document.getElementById('cclassRemoveResumo');
+  const btnDownload = document.getElementById('btnDownloadCclassRemove');
+  const btnProcessar = document.getElementById('btnProcessarCclassRemove');
+
+  function updateProgress(percentual, processados, total, status){
+    const p = Math.max(0, Math.min(100, Number(percentual || 0)));
+    pctEl.textContent = `${p}%`;
+    barEl.style.width = `${p}%`;
+    infoEl.textContent = `Status: ${status || 'running'} | Processados: ${processados || 0}/${total || 0}`;
+  }
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/cclass-remove/status/${sessionId}`, {cache: 'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+      updateProgress(j.percentual, j.processados, j.total, j.status);
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        btnDownload.href = `/api/cclass-remove/baixar/${sessionId}`;
+        const lista = Array.isArray(j.cclass_list) ? j.cclass_list.join(', ') : '-';
+        resumo.textContent = `cClass: ${lista || '-'} | XMLs: ${j.total || 0} | Arquivos alterados: ${j.changed_files || 0} | Alterações: ${j.total_changes || 0} | Erros: ${j.errors || 0}`;
+        out.style.display = 'block';
+        break;
+      }
+      await new Promise(res=>setTimeout(res, 2000));
+    }
+  }
+
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const f = document.getElementById('zipCclassRemove').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    const lista = (document.getElementById('listaCclass').value || '').trim();
+    if(!lista) return alert('Informe ao menos uma cClass (uma por linha).');
+    out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
+    const fd = new FormData();
+    fd.append('zip_xmls', f);
+    fd.append('lista_cclass', lista);
+    try{
+      const r = await fetch('/api/cclass-remove/processar', {method:'POST', body: fd});
       const j = await r.json().catch(()=>({}));
       if(!r.ok || !j.success) return alert(j.error || 'Erro ao iniciar processamento');
       await pollStatus(j.session_id);
