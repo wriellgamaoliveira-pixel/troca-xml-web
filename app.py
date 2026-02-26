@@ -1071,7 +1071,8 @@ def api_nota_visualizar():
 # Resumo assíncrono (evita timeout em ZIP grande no Render)
 # =========================================================
 SUMMARY_TTL = 60 * 60 * 4  # 4h
-DETAILS_LIMIT = 800  # evita JSON gigante
+DETAILS_LIMIT = 500  # limite máximo de linhas por tabela
+NOTES_PREVIEW_LIMIT = 100  # limite de notas detalhadas por grupo
 LOTE_TTL = 60 * 60 * 4
 
 def _set_status(sid, **kw):
@@ -1264,7 +1265,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
         def add_note(lst, note):
             if lst is None:
                 return
-            lst.append(note)
+            if len(lst) < NOTES_PREVIEW_LIMIT:
+                lst.append(note)
 
         def num_any(v):
             if isinstance(v, (int, float)):
@@ -1398,6 +1400,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                                     "total_outro": 0.0,
                                     "cfops": defaultdict(lambda: {
                                         "v_total": 0.0,
+                                        "qtd_notas": 0,
                                         "notas": [],
                                         "total_icms": 0.0,
                                         "total_pis": 0.0,
@@ -1436,7 +1439,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             cfop_rec["total_cbs"] += cbs
                             cfop_rec["total_desc"] += v_desc
                             cfop_rec["total_outro"] += v_outro
-                            cfop_rec["notas"].append({**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
+                            cfop_rec["qtd_notas"] += 1
+                            add_note(cfop_rec["notas"], {**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
                             total_processadas += 1
 
                         # --- Agrupa por item (cProd)
@@ -1450,6 +1454,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                                     "cClass": cClass,
                                     "qtd_itens": 0,
                                     "v_total": 0.0,
+                                    "qtd_notas": 0,
                                     "notas": [],
                                     "total_icms": 0.0,
                                     "total_pis": 0.0,
@@ -1473,6 +1478,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             ir["total_cbs"] += cbs
                             ir["total_desc"] += v_desc
                             ir["total_outro"] += v_outro
+                            ir["qtd_notas"] += 1
                             add_note(ir["notas"], {**nota_base, "valor": v, "valor_br": br_money(v), **nota_metricas})
 
                         # --- Total por CST ICMS
@@ -1530,6 +1536,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             "cfop": cfop,
                             "v_total": cfop_data["v_total"],
                             "v_total_br": br_money(cfop_data["v_total"]),
+                            "qtd_notas": cfop_data["qtd_notas"],
                             "total_icms": cfop_data["total_icms"],
                             "total_pis": cfop_data["total_pis"],
                             "total_cofins": cfop_data["total_cofins"],
@@ -1604,7 +1611,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 it["total_cbs_br"] = br_money(it.get("total_cbs"))
                 it["total_desc_br"] = br_money(it.get("total_desc"))
                 it["total_outro_br"] = br_money(it.get("total_outro"))
-            itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT]
+            itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)
 
             totais_cst_icms_linhas = []
             for tipo_icms, rec in totais_cst_icms.items():
@@ -1653,6 +1660,11 @@ def _process_zip_resumo(sid: str, zip_path: str):
                     }
                 )
 
+            linhas_sorted = sorted(linhas, key=lambda x: x["v_total"], reverse=True)
+            itens_sorted = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)
+            cst_sorted = sorted(totais_cst_icms_linhas, key=lambda x: x["v_total"], reverse=True)
+            impostos_sorted = sorted(impostos_linhas, key=lambda x: x["v_total"], reverse=True)
+
             data = {
                 "emitente_nome": emit_nome,
                 "emitente_cnpj": emit_cnpj,
@@ -1663,10 +1675,19 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 "total_impostos_br": br_money(R),
                 "labels": labels,
                 "valores": valores,
-                "linhas": sorted(linhas, key=lambda x: x["v_total"], reverse=True)[:DETAILS_LIMIT],
-                "itens_linhas": itens_linhas,
-                "totais_cst_icms_linhas": totais_cst_icms_linhas,
-                "impostos_linhas": impostos_linhas,
+                "linhas": linhas_sorted[:DETAILS_LIMIT],
+                "itens_linhas": itens_sorted[:DETAILS_LIMIT],
+                "totais_cst_icms_linhas": cst_sorted[:DETAILS_LIMIT],
+                "impostos_linhas": impostos_sorted[:DETAILS_LIMIT],
+                "avisos": {
+                    "resultados_limitados": (len(linhas_sorted) > DETAILS_LIMIT) or (len(itens_sorted) > DETAILS_LIMIT) or (len(cst_sorted) > DETAILS_LIMIT) or (len(impostos_sorted) > DETAILS_LIMIT),
+                    "linhas_total": len(linhas_sorted),
+                    "itens_total": len(itens_sorted),
+                    "cst_total": len(cst_sorted),
+                    "impostos_total": len(impostos_sorted),
+                    "limite_linhas": DETAILS_LIMIT,
+                    "limite_notas": NOTES_PREVIEW_LIMIT,
+                },
                 "debug": {
                     "total_xml": len(names),
                     "total_ok": ok,
@@ -1686,6 +1707,66 @@ def _process_zip_resumo(sid: str, zip_path: str):
     except Exception as e:
         _set_status(sid, status="error", done=True, error=str(e), progress=100, finished_at=datetime.now().isoformat())
 
+
+
+
+@app.route("/resumo-imposto/csv")
+def resumo_imposto_csv_page():
+    sid = request.args.get("session_id") or session.get("resumo_session_id")
+    data = r_get_json(f"resumo:data:{sid}") if sid else None
+    if not data:
+        return jsonify({"success": False, "error": "Resumo não encontrado para exportação"}), 404
+
+    out = io.StringIO()
+    writer = csv.writer(out, delimiter=';')
+    writer.writerow(["Tipo", "Grupo", "Qtd", "Valor Total", "ICMS", "PIS", "COFINS", "FUST", "FUNTTEL", "IBS", "CBS", "Desconto", "Outras"])
+
+    for row in data.get("totais_cst_icms_linhas") or []:
+        writer.writerow([
+            "CST ICMS",
+            row.get("tipo_icms") or "",
+            row.get("qtd_itens") or 0,
+            row.get("v_total") or 0,
+            row.get("total_icms") or 0,
+            row.get("total_pis") or 0,
+            row.get("total_cofins") or 0,
+            row.get("total_fust") or 0,
+            row.get("total_funttel") or 0,
+            row.get("total_ibs") or 0,
+            row.get("total_cbs") or 0,
+            row.get("total_desc") or 0,
+            row.get("total_outro") or 0,
+        ])
+
+    for row in data.get("impostos_linhas") or []:
+        writer.writerow([
+            "Retenção",
+            row.get("tipo") or "",
+            row.get("qtd_notas") or 0,
+            row.get("v_total") or 0,
+            "", "", "", "", "", "", "", "", "",
+        ])
+
+    content = out.getvalue()
+    return Response(
+        "﻿" + content,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=resumo_imposto.csv"},
+    )
+
+
+@app.route("/resumo/status")
+def resumo_status_light_page():
+    sid = request.args.get("session_id") or session.get("resumo_session_id")
+    if not sid:
+        return jsonify({"success": False, "error": "session_id é obrigatório"}), 400
+    st = r_get_json(f"resumo:status:{sid}") or {}
+    return jsonify({
+        "success": True,
+        "session_id": sid,
+        "percentual": st.get("progress", 0),
+        "processado": st.get("processed", 0),
+    })
 
 @app.route("/api/resumo/upload", methods=["POST"])
 def api_resumo_upload():

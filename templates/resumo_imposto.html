@@ -11,7 +11,7 @@
     <p class="page-subtitle">Processe um ZIP para gerar este relatório</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    {% if session_id %}<a href="/resumo/csv?session_id={{ session_id }}" class="btn btn-outline btn-sm"><i data-lucide="file-spreadsheet"></i> Gerar CSV</a>{% endif %}
+    {% if session_id %}<a href="/resumo-imposto/csv?session_id={{ session_id }}" class="btn btn-outline btn-sm"><i data-lucide="file-spreadsheet"></i> Gerar CSV</a>{% endif %}
     <button class="btn btn-primary btn-sm" type="button" onclick="window.print()"><i data-lucide="printer"></i> Imprimir</button>
   </div>
 </div>
@@ -26,6 +26,13 @@
     <div id="resumoProgress" class="note" style="display:none;margin-top:10px;">Iniciando processamento...</div>
   </div>
 </div>
+
+{% if data and data.avisos and data.avisos.resultados_limitados %}
+<div class="note" style="border-color:#f59e0b;background:#fffbeb;color:#92400e;">
+  <b>Resultados limitados por performance.</b>
+  Exibindo no máximo {{ data.avisos.limite_linhas }} linhas por tabela e {{ data.avisos.limite_notas }} notas detalhadas por grupo.
+</div>
+{% endif %}
 
 {% if data %}
 {% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
