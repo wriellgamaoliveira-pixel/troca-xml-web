@@ -503,33 +503,34 @@ function renderResumo(DATA){
     if (window.lucide && typeof window.lucide.createIcons === "function") window.lucide.createIcons();
   }
 
-  // ---------------- CFOP (Relatório por Imposto) ----------------
-  const cfopImpBody = document.getElementById("cfopImpBody");
-  const cfopImpFilter = document.getElementById("cfopImpFilter");
-  const cfopImpExpand = document.getElementById("cfopImpExpand");
-  const cfopImpCollapse = document.getElementById("cfopImpCollapse");
-  let expandedCfopImp = new Set();
-  function cfopImpKey(i){ return `cfi:${i}`; }
+  // ---------------- CST ICMS + CFOP (Relatório por Imposto) ----------------
+  const impAggBody = document.getElementById("impostoAggBody");
+  const impAggFilter = document.getElementById("impAggFilter");
+  const impAggExpand = document.getElementById("impAggExpand");
+  const impAggCollapse = document.getElementById("impAggCollapse");
+  let expandedImpAgg = new Set();
+  function impAggKey(i){ return `impagg:${i}`; }
 
   function redrawCfopImposto(){
-    if(!cfopImpBody) return;
-    cfopImpBody.innerHTML = "";
-    const q = (cfopImpFilter?.value || "").trim().toLowerCase();
-    const arr = (DATA.cfops_imposto_linhas || []).filter(r => !q || contains(r.cfop, q));
+    if(!impAggBody) return;
+    impAggBody.innerHTML = "";
+    const q = (impAggFilter?.value || "").trim().toLowerCase();
+    const arr = (DATA.imposto_cfop_linhas || []).filter(r => !q || contains(r.tipo_icms, q) || contains(r.cfop, q));
     if(arr.length===0){
-      cfopImpBody.appendChild(el("tr",{},[
-        el("td",{colspan:"13", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum CFOP encontrado.</div>"})
+      impAggBody.appendChild(el("tr",{},[
+        el("td",{colspan:"14", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum resultado encontrado.</div>"})
       ]));
       return;
     }
 
     arr.forEach((r, idx) => {
-      const key = cfopImpKey(idx);
-      const open = expandedCfopImp.has(key);
-      const btn = el("button",{class:"chev-btn", onClick:(ev)=>{ev.stopPropagation(); if(open) expandedCfopImp.delete(key); else expandedCfopImp.add(key); redrawCfopImposto();}},[ icon(open ? "chevron-down":"chevron-right") ]);
-      cfopImpBody.appendChild(el("tr",{},[
+      const key = impAggKey(idx);
+      const open = expandedImpAgg.has(key);
+      const btn = el("button",{class:"chev-btn", onClick:(ev)=>{ev.stopPropagation(); if(open) expandedImpAgg.delete(key); else expandedImpAgg.add(key); redrawCfopImposto();}},[ icon(open ? "chevron-down":"chevron-right") ]);
+      impAggBody.appendChild(el("tr",{},[
         el("td",{class:"center"},[btn]),
-        el("td",{},[String(r.cfop||"")]),
+        el("td",{},[String(r.tipo_icms||"indSemCST")]),
+        el("td",{},[String(r.cfop||"SEM CFOP")]),
         el("td",{class:"right"},[String(r.qtd_itens ?? "")]),
         el("td",{class:"right"},[String(r.v_total_br || moneyBR(r.v_total))]),
         el("td",{class:"right"},[String(r.total_icms_br || moneyBR(r.total_icms))]),
@@ -544,7 +545,7 @@ function renderResumo(DATA){
       ]));
       if(open){
         const notas = r.notas || [];
-        const wrap = el("div",{class:"subcard"},[el("div",{class:"subtitle"},["Notas relacionadas por CFOP"])]);
+        const wrap = el("div",{class:"subcard"},[el("div",{class:"subtitle"},["Notas relacionadas"])])
         const t = el("table",{},[]); t.style.minWidth = "820px";
         t.appendChild(el("thead",{},[el("tr",{},[
           el("th",{},["nNF"]), el("th",{},["Contrato (cNF)"]), el("th",{},["Emitente"]), el("th",{},["Destinatário"]), el("th",{},["Emissão"]), el("th",{class:"right"},["Valor"])
@@ -558,16 +559,16 @@ function renderResumo(DATA){
           ])));
         }
         t.appendChild(tb); wrap.appendChild(el("div",{class:"table-wrap"},[t]));
-        cfopImpBody.appendChild(el("tr",{},[el("td",{colspan:"13", class:"subrow"},[wrap])]));
+        impAggBody.appendChild(el("tr",{},[el("td",{colspan:"14", class:"subrow"},[wrap])]));
       }
     });
 
     if (window.lucide && typeof window.lucide.createIcons === "function") window.lucide.createIcons();
   }
 
-  cfopImpFilter?.addEventListener("input", redrawCfopImposto);
-  cfopImpExpand?.addEventListener("click", ()=>{ expandedCfopImp = new Set((DATA.cfops_imposto_linhas||[]).map((_,i)=>cfopImpKey(i))); redrawCfopImposto(); });
-  cfopImpCollapse?.addEventListener("click", ()=>{ expandedCfopImp = new Set(); redrawCfopImposto(); });
+  impAggFilter?.addEventListener("input", redrawCfopImposto);
+  impAggExpand?.addEventListener("click", ()=>{ expandedImpAgg = new Set((DATA.imposto_cfop_linhas||[]).map((_,i)=>impAggKey(i))); redrawCfopImposto(); });
+  impAggCollapse?.addEventListener("click", ()=>{ expandedImpAgg = new Set(); redrawCfopImposto(); });
 
   // ---------------- Impostos Table ----------------
   const impBody = document.getElementById("impBody");

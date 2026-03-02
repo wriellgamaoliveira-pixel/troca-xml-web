@@ -67,15 +67,15 @@
   </div>
 </div>
 
-<div class="card" id="cardCfopImposto">
+<div class="card" id="cardImpostoUnificado">
   <div class="card-header">
     <div class="controls">
       <div style="display:flex;align-items:center;gap:12px;flex:1;">
-        <h2 class="card-title" style="margin:0;">Tabela por CFOP</h2>
+        <h2 class="card-title" style="margin:0;">Tabela por CST ICMS + CFOP</h2>
       </div>
       <div class="controls-right">
-        <button class="btn btn-outline btn-sm" id="cfopImpExpand"><i data-lucide="expand"></i> Expandir Todos</button>
-        <button class="btn btn-outline btn-sm" id="cfopImpCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+        <button class="btn btn-outline btn-sm" id="impAggExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impAggCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
       </div>
     </div>
 
@@ -83,7 +83,7 @@
       <div class="controls-left">
         <div class="input-wrap" style="flex:1;">
           <i data-lucide="search" class="input-icon"></i>
-          <input class="input pad-left" id="cfopImpFilter" placeholder="Filtrar por CFOP...">
+          <input class="input pad-left" id="impAggFilter" placeholder="Filtrar por CST ICMS ou CFOP...">
         </div>
       </div>
     </div>
@@ -95,6 +95,7 @@
         <thead>
           <tr>
             <th class="center" style="width:44px;"></th>
+            <th>CST ICMS</th>
             <th>CFOP</th>
             <th class="right">Qtd Itens</th>
             <th class="right">Valor Total</th>
@@ -109,7 +110,7 @@
             <th class="right">Outras</th>
           </tr>
         </thead>
-        <tbody id="cfopImpBody"></tbody>
+        <tbody id="impostoAggBody"></tbody>
       </table>
     </div>
   </div>
@@ -161,34 +162,6 @@
   </div>
 </div>
 {% endif %}
-
-<div class="card" id="cardTotalCstIcms">
-  <div class="card-header"><h2 class="card-title">Total por CST ICMS</h2></div>
-  <div class="card-content">
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th class="center" style="width:44px;"></th>
-            <th>CST ICMS</th>
-            <th class="right">Qtd Itens</th>
-            <th class="right">Valor Total</th>
-            <th class="right">ICMS</th>
-            <th class="right">PIS</th>
-            <th class="right">COFINS</th>
-            <th class="right">FUST</th>
-            <th class="right">FUNTTEL</th>
-            <th class="right">IBS</th>
-            <th class="right">CBS</th>
-            <th class="right">Desconto</th>
-            <th class="right">Outras</th>
-          </tr>
-        </thead>
-        <tbody id="cstIcmsBody"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
 
 {% endif %}
 

@@ -1299,7 +1299,8 @@ def _process_zip_resumo(sid: str, zip_path: str):
             # cClass -> {desc,qtd_itens,v_total, cfops{cfop->{v_total,notas[]}}}
             by_cclass = {}
             by_item = {}    # (cProd,cClass,desc) -> {item,desc,cClass,qtd_itens,v_total, notas:[]}
-            by_cfop_global = defaultdict(lambda: {
+            totais_imposto = defaultdict(lambda: defaultdict(lambda: {
+                "tipo_icms": "indSemCST",
                 "cfop": "SEM CFOP",
                 "qtd_itens": 0,
                 "qtd_notas": 0,
@@ -1314,23 +1315,7 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 "total_desc": 0.0,
                 "total_outro": 0.0,
                 "notas": [],
-            })
-            totais_cst_icms = defaultdict(lambda: {
-                "tipo_icms": "indSemCST",
-                "qtd_itens": 0,
-                "qtd_notas": 0,
-                "v_total": 0.0,
-                "total_icms": 0.0,
-                "total_pis": 0.0,
-                "total_cofins": 0.0,
-                "total_fust": 0.0,
-                "total_funttel": 0.0,
-                "total_ibs": 0.0,
-                "total_cbs": 0.0,
-                "total_desc": 0.0,
-                "total_outro": 0.0,
-                "notas": [],
-            })
+            }))
             impostos = {"PIS Ret.": 0.0, "COFINS Ret.": 0.0, "CSLL Ret.": 0.0, "IRRF Ret.": 0.0}
             impostos_notas = {"PIS Ret.": [], "COFINS Ret.": [], "CSLL Ret.": [], "IRRF Ret.": []}
 
@@ -1477,22 +1462,23 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             add_note_imposto(cfop_rec["notas"], nota_ref)
                             total_processadas += 1
 
-                        # --- Agrupa global por CFOP (Relatório por Imposto)
-                        cfop_global = by_cfop_global[cfop]
-                        cfop_global["cfop"] = cfop
-                        cfop_global["qtd_itens"] += 1
-                        cfop_global["qtd_notas"] += 1
-                        cfop_global["v_total"] += v
-                        cfop_global["total_icms"] += icms
-                        cfop_global["total_pis"] += pis
-                        cfop_global["total_cofins"] += cofins
-                        cfop_global["total_fust"] += fust
-                        cfop_global["total_funttel"] += funttel
-                        cfop_global["total_ibs"] += ibs
-                        cfop_global["total_cbs"] += cbs
-                        cfop_global["total_desc"] += v_desc
-                        cfop_global["total_outro"] += v_outro
-                        add_note_imposto(cfop_global["notas"], nota_ref)
+                        # --- Agrupa Relatório por Imposto (CST ICMS -> CFOP)
+                        imp_rec = totais_imposto[tipo_icms][cfop]
+                        imp_rec["tipo_icms"] = tipo_icms
+                        imp_rec["cfop"] = cfop
+                        imp_rec["qtd_itens"] += 1
+                        imp_rec["qtd_notas"] += 1
+                        imp_rec["v_total"] += v
+                        imp_rec["total_icms"] += icms
+                        imp_rec["total_pis"] += pis
+                        imp_rec["total_cofins"] += cofins
+                        imp_rec["total_fust"] += fust
+                        imp_rec["total_funttel"] += funttel
+                        imp_rec["total_ibs"] += ibs
+                        imp_rec["total_cbs"] += cbs
+                        imp_rec["total_desc"] += v_desc
+                        imp_rec["total_outro"] += v_outro
+                        add_note_imposto(imp_rec["notas"], nota_ref)
 
                         # --- Agrupa por item (cProd)
                         if cProd:
@@ -1531,23 +1517,6 @@ def _process_zip_resumo(sid: str, zip_path: str):
                             ir["total_outro"] += v_outro
                             ir["qtd_notas"] += 1
                             add_note(ir["notas"], {**nota_ref, **nota_metricas})
-
-                        # --- Total por CST ICMS
-                        cst_rec = totais_cst_icms[tipo_icms]
-                        cst_rec["tipo_icms"] = tipo_icms
-                        cst_rec["qtd_itens"] += 1
-                        cst_rec["qtd_notas"] += 1
-                        cst_rec["v_total"] += v
-                        cst_rec["total_icms"] += icms
-                        cst_rec["total_pis"] += pis
-                        cst_rec["total_cofins"] += cofins
-                        cst_rec["total_fust"] += fust
-                        cst_rec["total_funttel"] += funttel
-                        cst_rec["total_ibs"] += ibs
-                        cst_rec["total_cbs"] += cbs
-                        cst_rec["total_desc"] += v_desc
-                        cst_rec["total_outro"] += v_outro
-                        add_note_imposto(cst_rec["notas"], nota_ref)
 
                     # --- Retenções (NFCom)
                     rtt = d.get("retencoes") or {}
@@ -1666,67 +1635,81 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 it["total_outro_br"] = br_money(it.get("total_outro"))
             itens_linhas = sorted(itens_linhas, key=lambda x: x["v_total"], reverse=True)
 
-            cfops_imposto_linhas = []
-            for _, rec in by_cfop_global.items():
-                cfops_imposto_linhas.append({
-                    "cfop": rec["cfop"],
-                    "qtd_itens": rec["qtd_itens"],
-                    "qtd_notas": rec["qtd_notas"],
-                    "v_total": rec["v_total"],
-                    "v_total_br": br_money(rec["v_total"]),
-                    "total_icms": rec["total_icms"],
-                    "total_pis": rec["total_pis"],
-                    "total_cofins": rec["total_cofins"],
-                    "total_fust": rec["total_fust"],
-                    "total_funttel": rec["total_funttel"],
-                    "total_ibs": rec["total_ibs"],
-                    "total_cbs": rec["total_cbs"],
-                    "total_desc": rec["total_desc"],
-                    "total_outro": rec["total_outro"],
-                    "total_icms_br": br_money(rec["total_icms"]),
-                    "total_pis_br": br_money(rec["total_pis"]),
-                    "total_cofins_br": br_money(rec["total_cofins"]),
-                    "total_fust_br": br_money(rec["total_fust"]),
-                    "total_funttel_br": br_money(rec["total_funttel"]),
-                    "total_ibs_br": br_money(rec["total_ibs"]),
-                    "total_cbs_br": br_money(rec["total_cbs"]),
-                    "total_desc_br": br_money(rec["total_desc"]),
-                    "total_outro_br": br_money(rec["total_outro"]),
-                    "notas": rec["notas"],
-                })
-            cfops_imposto_linhas = sorted(cfops_imposto_linhas, key=lambda x: x["v_total"], reverse=True)
-
+            imposto_cfop_linhas = []
+            cfop_totais = defaultdict(float)
             totais_cst_icms_linhas = []
-            for tipo_icms, rec in totais_cst_icms.items():
-                totais_cst_icms_linhas.append({
+            for tipo_icms, mapa_cfop in totais_imposto.items():
+                cst_total = {
                     "tipo_icms": tipo_icms,
-                    "qtd_itens": rec["qtd_itens"],
-                    "v_total": rec["v_total"],
-                    "v_total_br": br_money(rec["v_total"]),
-                    "total_icms": rec["total_icms"],
-                    "total_pis": rec["total_pis"],
-                    "total_cofins": rec["total_cofins"],
-                    "total_fust": rec["total_fust"],
-                    "total_funttel": rec["total_funttel"],
-                    "total_ibs": rec["total_ibs"],
-                    "total_cbs": rec["total_cbs"],
-                    "total_desc": rec["total_desc"],
-                    "total_outro": rec["total_outro"],
-                    "total_icms_br": br_money(rec["total_icms"]),
-                    "total_pis_br": br_money(rec["total_pis"]),
-                    "total_cofins_br": br_money(rec["total_cofins"]),
-                    "total_fust_br": br_money(rec["total_fust"]),
-                    "total_funttel_br": br_money(rec["total_funttel"]),
-                    "total_ibs_br": br_money(rec["total_ibs"]),
-                    "total_cbs_br": br_money(rec["total_cbs"]),
-                    "total_desc_br": br_money(rec["total_desc"]),
-                    "total_outro_br": br_money(rec["total_outro"]),
-                    "notas": rec["notas"],
-                })
+                    "qtd_itens": 0,
+                    "v_total": 0.0,
+                    "total_icms": 0.0,
+                    "total_pis": 0.0,
+                    "total_cofins": 0.0,
+                    "total_fust": 0.0,
+                    "total_funttel": 0.0,
+                    "total_ibs": 0.0,
+                    "total_cbs": 0.0,
+                    "total_desc": 0.0,
+                    "total_outro": 0.0,
+                }
+                for cfop, rec in mapa_cfop.items():
+                    imposto_cfop_linhas.append({
+                        "tipo_icms": tipo_icms,
+                        "cfop": cfop,
+                        "qtd_itens": rec["qtd_itens"],
+                        "qtd_notas": rec["qtd_notas"],
+                        "v_total": rec["v_total"],
+                        "v_total_br": br_money(rec["v_total"]),
+                        "total_icms": rec["total_icms"],
+                        "total_pis": rec["total_pis"],
+                        "total_cofins": rec["total_cofins"],
+                        "total_fust": rec["total_fust"],
+                        "total_funttel": rec["total_funttel"],
+                        "total_ibs": rec["total_ibs"],
+                        "total_cbs": rec["total_cbs"],
+                        "total_desc": rec["total_desc"],
+                        "total_outro": rec["total_outro"],
+                        "total_icms_br": br_money(rec["total_icms"]),
+                        "total_pis_br": br_money(rec["total_pis"]),
+                        "total_cofins_br": br_money(rec["total_cofins"]),
+                        "total_fust_br": br_money(rec["total_fust"]),
+                        "total_funttel_br": br_money(rec["total_funttel"]),
+                        "total_ibs_br": br_money(rec["total_ibs"]),
+                        "total_cbs_br": br_money(rec["total_cbs"]),
+                        "total_desc_br": br_money(rec["total_desc"]),
+                        "total_outro_br": br_money(rec["total_outro"]),
+                        "notas": rec["notas"],
+                    })
+                    cfop_totais[cfop] += rec["v_total"]
+                    cst_total["qtd_itens"] += rec["qtd_itens"]
+                    cst_total["v_total"] += rec["v_total"]
+                    cst_total["total_icms"] += rec["total_icms"]
+                    cst_total["total_pis"] += rec["total_pis"]
+                    cst_total["total_cofins"] += rec["total_cofins"]
+                    cst_total["total_fust"] += rec["total_fust"]
+                    cst_total["total_funttel"] += rec["total_funttel"]
+                    cst_total["total_ibs"] += rec["total_ibs"]
+                    cst_total["total_cbs"] += rec["total_cbs"]
+                    cst_total["total_desc"] += rec["total_desc"]
+                    cst_total["total_outro"] += rec["total_outro"]
+                cst_total["v_total_br"] = br_money(cst_total["v_total"])
+                cst_total["total_icms_br"] = br_money(cst_total["total_icms"])
+                cst_total["total_pis_br"] = br_money(cst_total["total_pis"])
+                cst_total["total_cofins_br"] = br_money(cst_total["total_cofins"])
+                cst_total["total_fust_br"] = br_money(cst_total["total_fust"])
+                cst_total["total_funttel_br"] = br_money(cst_total["total_funttel"])
+                cst_total["total_ibs_br"] = br_money(cst_total["total_ibs"])
+                cst_total["total_cbs_br"] = br_money(cst_total["total_cbs"])
+                cst_total["total_desc_br"] = br_money(cst_total["total_desc"])
+                cst_total["total_outro_br"] = br_money(cst_total["total_outro"])
+                totais_cst_icms_linhas.append(cst_total)
+
+            imposto_cfop_linhas = sorted(imposto_cfop_linhas, key=lambda x: (x["tipo_icms"], -x["v_total"], x["cfop"]))
             totais_cst_icms_linhas = sorted(totais_cst_icms_linhas, key=lambda x: x["v_total"], reverse=True)
-            top_imposto = cfops_imposto_linhas[:12]
-            labels_imposto = [x.get("cfop") or "SEM CFOP" for x in top_imposto]
-            valores_imposto = [x.get("v_total") or 0 for x in top_imposto]
+            top_imposto = sorted(cfop_totais.items(), key=lambda x: x[1], reverse=True)[:12]
+            labels_imposto = [cfop or "SEM CFOP" for cfop, _ in top_imposto]
+            valores_imposto = [v for _, v in top_imposto]
 
             # impostos_linhas
             R = sum(impostos.values()) or 0.0
@@ -1765,15 +1748,16 @@ def _process_zip_resumo(sid: str, zip_path: str):
                 "labels_imposto": labels_imposto,
                 "valores_imposto": valores_imposto,
                 "linhas": linhas_sorted[:DETAILS_LIMIT],
-                "cfops_imposto_linhas": cfops_imposto_linhas[:DETAILS_LIMIT],
+                "imposto_cfop_linhas": imposto_cfop_linhas[:DETAILS_LIMIT],
                 "itens_linhas": itens_sorted[:DETAILS_LIMIT],
                 "totais_cst_icms_linhas": cst_sorted[:DETAILS_LIMIT],
                 "impostos_linhas": impostos_sorted[:DETAILS_LIMIT],
                 "avisos": {
-                    "resultados_limitados": (len(linhas_sorted) > DETAILS_LIMIT) or (len(itens_sorted) > DETAILS_LIMIT) or (len(cst_sorted) > DETAILS_LIMIT) or (len(impostos_sorted) > DETAILS_LIMIT),
+                    "resultados_limitados": (len(linhas_sorted) > DETAILS_LIMIT) or (len(itens_sorted) > DETAILS_LIMIT) or (len(imposto_cfop_linhas) > DETAILS_LIMIT) or (len(impostos_sorted) > DETAILS_LIMIT),
                     "linhas_total": len(linhas_sorted),
                     "itens_total": len(itens_sorted),
                     "cst_total": len(cst_sorted),
+                    "imposto_cfop_total": len(imposto_cfop_linhas),
                     "impostos_total": len(impostos_sorted),
                     "limite_linhas": DETAILS_LIMIT,
                     "limite_notas": NOTES_PREVIEW_LIMIT,
@@ -1809,12 +1793,13 @@ def resumo_imposto_csv_page():
 
     out = io.StringIO()
     writer = csv.writer(out, delimiter=';')
-    writer.writerow(["Tipo", "Grupo", "Qtd", "Valor Total", "ICMS", "PIS", "COFINS", "FUST", "FUNTTEL", "IBS", "CBS", "Desconto", "Outras"])
+    writer.writerow(["Tipo", "CST ICMS", "CFOP", "Qtd", "Valor Total", "ICMS", "PIS", "COFINS", "FUST", "FUNTTEL", "IBS", "CBS", "Desconto", "Outras"])
 
-    for row in data.get("totais_cst_icms_linhas") or []:
+    for row in data.get("imposto_cfop_linhas") or []:
         writer.writerow([
-            "CST ICMS",
+            "CST+CFOP",
             row.get("tipo_icms") or "",
+            row.get("cfop") or "",
             row.get("qtd_itens") or 0,
             row.get("v_total") or 0,
             row.get("total_icms") or 0,
@@ -1832,6 +1817,7 @@ def resumo_imposto_csv_page():
         writer.writerow([
             "Retenção",
             row.get("tipo") or "",
+            "",
             row.get("qtd_notas") or 0,
             row.get("v_total") or 0,
             "", "", "", "", "", "", "", "", "",
