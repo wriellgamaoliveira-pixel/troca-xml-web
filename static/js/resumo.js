@@ -48,7 +48,10 @@ function renderResumo(DATA){
   // ---------------- Chart ----------------
   const ctx = document.getElementById("pieChart");
   if(ctx && window.Chart){
-    const chartData = (DATA.labels||[]).map((label, idx) => ({label, value: (DATA.valores||[])[idx] || 0}));
+    const chartMode = window.__RESUMO_CHART_MODE__ || "cclass";
+    const srcLabels = chartMode === "imposto" ? (DATA.labels_imposto || DATA.labels || []) : (DATA.labels || []);
+    const srcValores = chartMode === "imposto" ? (DATA.valores_imposto || DATA.valores || []) : (DATA.valores || []);
+    const chartData = (srcLabels||[]).map((label, idx) => ({label, value: (srcValores||[])[idx] || 0}));
     const labels = chartData.map(x=>x.label);
     const values = chartData.map(x=>x.value);
 
@@ -368,16 +371,7 @@ function renderResumo(DATA){
             el("th",{},["Emitente"]),
             el("th",{},["Destinatário"]),
             el("th",{},["Emissão"]),
-            el("th",{class:"right"},["Valor do item"]),
-            el("th",{class:"right"},["ICMS"]),
-            el("th",{class:"right"},["PIS"]),
-            el("th",{class:"right"},["COFINS"]),
-            el("th",{class:"right"},["FUST"]),
-            el("th",{class:"right"},["FUNTTEL"]),
-            el("th",{class:"right"},["IBS"]),
-            el("th",{class:"right"},["CBS"]),
-            el("th",{class:"right"},["Desconto"]),
-            el("th",{class:"right"},["Outras"]),
+            el("th",{class:"right"},["Valor"]),
           ])
         ]));
         const tb = el("tbody",{},[]);
@@ -477,23 +471,25 @@ function renderResumo(DATA){
             el("th",{},["Emitente"]),
             el("th",{},["Destinatário"]),
             el("th",{},["Emissão"]),
-            el("th",{class:"right"},["Valor do item"]),
-            el("th",{class:"right"},["ICMS"]),
-            el("th",{class:"right"},["PIS"]),
-            el("th",{class:"right"},["COFINS"]),
-            el("th",{class:"right"},["FUST"]),
-            el("th",{class:"right"},["FUNTTEL"]),
-            el("th",{class:"right"},["IBS"]),
-            el("th",{class:"right"},["CBS"]),
-            el("th",{class:"right"},["Desconto"]),
-            el("th",{class:"right"},["Outras"]),
+            el("th",{class:"right"},["Valor"]),
           ])
         ]));
         const tb = el("tbody",{},[]);
         if(notas.length===0){
           tb.appendChild(el("tr",{},[
-            el("td",{colspan:"15", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas relacionadas</div>"})
+            el("td",{colspan:"6", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas relacionadas</div>"})
           ]));
+        }else{
+          notas.forEach(n => {
+            tb.appendChild(el("tr",{},[
+              el("td",{},[String(n.nNF||"")]),
+              el("td",{},[String(n.cNF||"")]),
+              el("td",{},[String(n.xNome||"")]),
+              el("td",{},[String(n.xContato||"")]),
+              el("td",{},[String(n.dhEmi_fmt||"")]),
+              el("td",{class:"right"},[String(n.valor_br||moneyBR(n.valor))]),
+            ]));
+          });
         }
         t.appendChild(tb);
         wrap.appendChild(el("div",{class:"table-wrap"},[t]));
@@ -506,6 +502,72 @@ function renderResumo(DATA){
 
     if (window.lucide && typeof window.lucide.createIcons === "function") window.lucide.createIcons();
   }
+
+  // ---------------- CFOP (Relatório por Imposto) ----------------
+  const cfopImpBody = document.getElementById("cfopImpBody");
+  const cfopImpFilter = document.getElementById("cfopImpFilter");
+  const cfopImpExpand = document.getElementById("cfopImpExpand");
+  const cfopImpCollapse = document.getElementById("cfopImpCollapse");
+  let expandedCfopImp = new Set();
+  function cfopImpKey(i){ return `cfi:${i}`; }
+
+  function redrawCfopImposto(){
+    if(!cfopImpBody) return;
+    cfopImpBody.innerHTML = "";
+    const q = (cfopImpFilter?.value || "").trim().toLowerCase();
+    const arr = (DATA.cfops_imposto_linhas || []).filter(r => !q || contains(r.cfop, q));
+    if(arr.length===0){
+      cfopImpBody.appendChild(el("tr",{},[
+        el("td",{colspan:"13", class:"center", html:"<div style='padding:22px;color:var(--muted)'>Nenhum CFOP encontrado.</div>"})
+      ]));
+      return;
+    }
+
+    arr.forEach((r, idx) => {
+      const key = cfopImpKey(idx);
+      const open = expandedCfopImp.has(key);
+      const btn = el("button",{class:"chev-btn", onClick:(ev)=>{ev.stopPropagation(); if(open) expandedCfopImp.delete(key); else expandedCfopImp.add(key); redrawCfopImposto();}},[ icon(open ? "chevron-down":"chevron-right") ]);
+      cfopImpBody.appendChild(el("tr",{},[
+        el("td",{class:"center"},[btn]),
+        el("td",{},[String(r.cfop||"")]),
+        el("td",{class:"right"},[String(r.qtd_itens ?? "")]),
+        el("td",{class:"right"},[String(r.v_total_br || moneyBR(r.v_total))]),
+        el("td",{class:"right"},[String(r.total_icms_br || moneyBR(r.total_icms))]),
+        el("td",{class:"right"},[String(r.total_pis_br || moneyBR(r.total_pis))]),
+        el("td",{class:"right"},[String(r.total_cofins_br || moneyBR(r.total_cofins))]),
+        el("td",{class:"right"},[String(r.total_fust_br || moneyBR(r.total_fust))]),
+        el("td",{class:"right"},[String(r.total_funttel_br || moneyBR(r.total_funttel))]),
+        el("td",{class:"right"},[String(r.total_ibs_br || moneyBR(r.total_ibs))]),
+        el("td",{class:"right"},[String(r.total_cbs_br || moneyBR(r.total_cbs))]),
+        el("td",{class:"right"},[String(r.total_desc_br || moneyBR(r.total_desc))]),
+        el("td",{class:"right"},[String(r.total_outro_br || moneyBR(r.total_outro))]),
+      ]));
+      if(open){
+        const notas = r.notas || [];
+        const wrap = el("div",{class:"subcard"},[el("div",{class:"subtitle"},["Notas relacionadas por CFOP"])]);
+        const t = el("table",{},[]); t.style.minWidth = "820px";
+        t.appendChild(el("thead",{},[el("tr",{},[
+          el("th",{},["nNF"]), el("th",{},["Contrato (cNF)"]), el("th",{},["Emitente"]), el("th",{},["Destinatário"]), el("th",{},["Emissão"]), el("th",{class:"right"},["Valor"])
+        ])]));
+        const tb = el("tbody",{},[]);
+        if(notas.length===0){
+          tb.appendChild(el("tr",{},[el("td",{colspan:"6", class:"center", html:"<div style='padding:14px;color:var(--muted)'>Sem notas</div>"})]));
+        }else{
+          notas.forEach(n=>tb.appendChild(el("tr",{},[
+            el("td",{},[String(n.nNF||"")]), el("td",{},[String(n.cNF||"")]), el("td",{},[String(n.xNome||"")]), el("td",{},[String(n.xContato||"")]), el("td",{},[String(n.dhEmi_fmt||"")]), el("td",{class:"right"},[String(n.valor_br||moneyBR(n.valor))])
+          ])));
+        }
+        t.appendChild(tb); wrap.appendChild(el("div",{class:"table-wrap"},[t]));
+        cfopImpBody.appendChild(el("tr",{},[el("td",{colspan:"13", class:"subrow"},[wrap])]));
+      }
+    });
+
+    if (window.lucide && typeof window.lucide.createIcons === "function") window.lucide.createIcons();
+  }
+
+  cfopImpFilter?.addEventListener("input", redrawCfopImposto);
+  cfopImpExpand?.addEventListener("click", ()=>{ expandedCfopImp = new Set((DATA.cfops_imposto_linhas||[]).map((_,i)=>cfopImpKey(i))); redrawCfopImposto(); });
+  cfopImpCollapse?.addEventListener("click", ()=>{ expandedCfopImp = new Set(); redrawCfopImposto(); });
 
   // ---------------- Impostos Table ----------------
   const impBody = document.getElementById("impBody");
@@ -655,6 +717,7 @@ function renderResumo(DATA){
   // render initial
   redrawC();
   redrawItems();
+  redrawCfopImposto();
   redrawCstIcms();
   redrawImp();
   if(tabBtnCclass && tabBtnImposto){

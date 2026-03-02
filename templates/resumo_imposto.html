@@ -35,6 +35,86 @@
 {% endif %}
 
 {% if data %}
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      {% if data.emitente_nome %}
+      <div>
+        <p class="kpi-label">Emitente</p>
+        <p class="kpi-value" style="font-size:16px;">{{ data.emitente_nome }}</p>
+        {% if data.emitente_cnpj %}<p class="kpi-sub">{{ data.emitente_cnpj }}</p>{% endif %}
+      </div>
+      {% endif %}
+      <div>
+        <p class="kpi-label">Total de Arquivos</p>
+        <p class="kpi-value">{{ data.total_arquivos }}</p>
+      </div>
+      <div style="grid-column: span 2;">
+        <p class="kpi-label">Valor Total</p>
+        <p class="kpi-value primary">{{ data.total_geral_br }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card chart-container">
+  <div class="card-header"><h2 class="card-title">Gráfico (Top 12 CFOP)</h2></div>
+  <div class="card-content">
+    <div class="chart-wrap">
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="cardCfopImposto">
+  <div class="card-header">
+    <div class="controls">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;">
+        <h2 class="card-title" style="margin:0;">Tabela por CFOP</h2>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="cfopImpExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="cfopImpCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="cfopImpFilter" placeholder="Filtrar por CFOP...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>CFOP</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">ICMS</th>
+            <th class="right">PIS</th>
+            <th class="right">COFINS</th>
+            <th class="right">FUST</th>
+            <th class="right">FUNTTEL</th>
+            <th class="right">IBS</th>
+            <th class="right">CBS</th>
+            <th class="right">Desconto</th>
+            <th class="right">Outras</th>
+          </tr>
+        </thead>
+        <tbody id="cfopImpBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
 <div class="card" id="cardImpostosRetidos">
   <div class="card-header">
@@ -115,6 +195,7 @@
 <script>
   window.__RESUMO_DATA__ = {{ (data or {})|tojson }};
   window.__RESUMO_REPORT_TYPE__ = "imposto";
+  window.__RESUMO_CHART_MODE__ = "imposto";
 </script>
 {% endblock %}
 
