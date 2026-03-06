@@ -596,11 +596,17 @@ def index():
     modulo = session.get("modulo", "nfcom")
     return render_template("index.html", modulo=modulo, current_modulo=modulo)
 
-@app.route("/alteracao-lote")
-def alteracao_lote_page():
-    modulo = session.get("modulo", "nfcom")
-    return render_template("alteracao_lote.html", modulo=modulo, current_modulo=modulo)
 
+
+from modules.nfcom.routes import bp as nfcom_bp
+from modules.nfe.routes import bp as nfe_bp
+from modules.nfce.routes import bp as nfce_bp
+from modules.nfse.routes import bp as nfse_bp
+
+app.register_blueprint(nfcom_bp)
+app.register_blueprint(nfe_bp)
+app.register_blueprint(nfce_bp)
+app.register_blueprint(nfse_bp)
 
 def _set_sessao_status(sid, **kw):
     st = r_get_json(f"sessao:status:{sid}") or {"session_id": sid}
@@ -957,18 +963,6 @@ def api_cclass_remove_baixar(sid):
 
     return send_file(out_path, as_attachment=True, download_name=f"remover_cfop_cclass_{sid}.zip", mimetype='application/zip')
 
-@app.route("/nota")
-def nota_page():
-    modulo = session.get("modulo", "nfcom")
-    return render_template("nota.html", modulo=modulo, current_modulo=modulo)
-
-@app.route("/resumo")
-def resumo_page():
-    modulo = session.get("modulo", "nfcom")
-    return render_template("resumo.html", modulo=modulo, current_modulo=modulo)
-
-
-
 def _get_resumo_data(session_id=None):
     sid = session_id or request.args.get("session_id")
     if not sid:
@@ -980,49 +974,6 @@ def _get_resumo_data(session_id=None):
     return sid, data
 
 
-@app.route("/resumo/resultado")
-def resumo_resultado_page():
-    sid, data = _get_resumo_data(session.get("resumo_session_id"))
-    modulo = session.get("modulo", "nfcom")
-    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
-
-
-@app.route("/resumo-cclass")
-def resumo_cclass_page():
-    sid, data = _get_resumo_data()
-    modulo = session.get("modulo", "nfcom")
-    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
-
-
-@app.route("/resumo-imposto")
-def resumo_imposto_page():
-    sid, data = _get_resumo_data()
-    modulo = session.get("modulo", "nfcom")
-    return render_template("resumo_imposto.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
-
-
-@app.route("/<modulo>/resumo")
-def modulo_resumo_page(modulo):
-    modulo = _resolve_modulo(modulo)
-    session["modulo"] = modulo
-    sid, data = _get_resumo_data()
-    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
-
-
-@app.route("/<modulo>/alteracao")
-def modulo_alteracao_page(modulo):
-    modulo = _resolve_modulo(modulo)
-    session["modulo"] = modulo
-    return render_template("alteracao_lote.html", modulo=modulo, current_modulo=modulo)
-
-
-@app.route("/<modulo>/nota-unica")
-def modulo_nota_unica_page(modulo):
-    modulo = _resolve_modulo(modulo)
-    session["modulo"] = modulo
-    if modulo != "nfcom":
-        return ("Nota Única disponível inicialmente apenas para o módulo NFCom.", 404)
-    return render_template("nota.html", modulo=modulo, current_modulo=modulo)
 
 @app.route("/resumo/csv")
 def resumo_csv_page():
@@ -1948,9 +1899,11 @@ def api_resumo_status():
     st["success"] = True
     report_type = (request.args.get("report_type") or "cclass").strip().lower()
     if report_type == "imposto":
-        st["redirect"] = url_for("resumo_imposto_page", session_id=sid)
+        modulo = _resolve_modulo(session.get("modulo", "nfcom"))
+        st["redirect"] = url_for(f"{modulo}.resumo_page", session_id=sid)
     else:
-        st["redirect"] = url_for("resumo_cclass_page", session_id=sid)
+        modulo = _resolve_modulo(session.get("modulo", "nfcom"))
+        st["redirect"] = url_for(f"{modulo}.resumo_page", session_id=sid)
     return jsonify(st)
 
 # =========================================================
