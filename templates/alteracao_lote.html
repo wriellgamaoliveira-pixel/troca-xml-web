@@ -251,6 +251,7 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     if(!f) return alert('Selecione um ZIP.');
     out.style.display='none'; progress.style.display='block'; updateProgress(0,'Iniciando...',0); btnProcessar.disabled=true;
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('zip_xmls', f);
     fd.append('remover_desconto', document.getElementById('removerDesconto').checked ? 'true':'false');
     fd.append('remover_outros', document.getElementById('removerOutros').checked ? 'true':'false');
@@ -310,6 +311,7 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     if(!regras) return alert('Informe ao menos uma regra no formato descricao;cClass');
     out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('zip_xmls', f);
     fd.append('regras_descricao_cclass', regras);
     try{
@@ -366,7 +368,7 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     const icmsTipo = (document.getElementById('icmsTipo').value || '').trim();
     if(!icmsTipo) return alert('Informe um tipo ICMS.');
     out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
-    const fd = new FormData(); fd.append('zip_xmls', f); fd.append('icms_tipo', icmsTipo);
+    const fd = new FormData(); if (window.appendModuloToFormData) window.appendModuloToFormData(fd); fd.append('zip_xmls', f); fd.append('icms_tipo', icmsTipo);
     try{
       const r = await fetch('/api/sessao/processar', {method:'POST', body: fd});
       const j = await r.json().catch(()=>({}));
@@ -423,6 +425,7 @@ document.getElementById("tipoAlteracao").addEventListener("change", function() {
     if(!lista) return alert('Informe ao menos uma cClass (uma por linha).');
     out.style.display='none'; progress.style.display='block'; updateProgress(0,0,0,'iniciando'); btnProcessar.disabled=true;
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('zip_xmls', f);
     fd.append('lista_cclass', lista);
     try{

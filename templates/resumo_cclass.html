@@ -223,6 +223,7 @@
     const f = document.getElementById('resumoZip').files[0];
     if(!f) return alert('Selecione um ZIP.');
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('file', f);
     fd.append('report_type', window.__RESUMO_REPORT_TYPE__ || 'cclass');
     progress.style.display = 'block';

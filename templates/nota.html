@@ -183,6 +183,7 @@
     if(!f) return alert('Selecione um XML.');
 
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('xml_nota', f);
 
     const r = await fetch('/api/nota/visualizar', {method:'POST', body: fd});

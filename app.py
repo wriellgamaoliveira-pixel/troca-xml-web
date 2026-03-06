@@ -561,13 +561,32 @@ def parse_xml_any(xml_bytes: bytes):
 # =========================================================
 # Páginas
 # =========================================================
+
+
+def _resolve_modulo(value: str):
+    v = (value or "").strip().lower()
+    return v if v in {"nfcom", "nfe"} else "nfcom"
+
+
+def _get_modulo_from_request():
+    modulo = _resolve_modulo(request.form.get("modulo") or request.args.get("modulo") or session.get("modulo"))
+    session["modulo"] = modulo
+    return modulo
+
+
+@app.route("/api/modulo", methods=["POST"])
+def api_set_modulo():
+    modulo = _resolve_modulo(request.form.get("modulo") or (request.get_json(silent=True) or {}).get("modulo"))
+    session["modulo"] = modulo
+    return jsonify({"success": True, "modulo": modulo})
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", modulo=session.get("modulo", "nfcom"))
 
 @app.route("/alteracao-lote")
 def alteracao_lote_page():
-    return render_template("alteracao_lote.html")
+    return render_template("alteracao_lote.html", modulo=session.get("modulo", "nfcom"))
 
 
 def _set_sessao_status(sid, **kw):
@@ -821,6 +840,7 @@ def _process_remove_cfop_icms_async(sid: str, in_zip_path: str, icms_tipo: str):
 @app.route('/api/sessao/processar', methods=['POST'])
 def api_sessao_processar():
     try:
+        modulo = _get_modulo_from_request()
         if 'zip_xmls' not in request.files:
             return jsonify({'success': False, 'error': 'Envie o ZIP no campo zip_xmls'}), 400
         zf = request.files['zip_xmls']
@@ -870,6 +890,7 @@ def api_sessao_baixar(sid):
 @app.route('/api/cclass-remove/processar', methods=['POST'])
 def api_cclass_remove_processar():
     try:
+        modulo = _get_modulo_from_request()
         if 'zip_xmls' not in request.files:
             return jsonify({'success': False, 'error': 'Envie o ZIP no campo zip_xmls'}), 400
         zf = request.files['zip_xmls']
@@ -925,11 +946,11 @@ def api_cclass_remove_baixar(sid):
 
 @app.route("/nota")
 def nota_page():
-    return render_template("nota.html")
+    return render_template("nota.html", modulo=session.get("modulo", "nfcom"))
 
 @app.route("/resumo")
 def resumo_page():
-    return render_template("resumo.html")
+    return render_template("resumo.html", modulo=session.get("modulo", "nfcom"))
 
 
 
@@ -947,19 +968,19 @@ def _get_resumo_data(session_id=None):
 @app.route("/resumo/resultado")
 def resumo_resultado_page():
     sid, data = _get_resumo_data(session.get("resumo_session_id"))
-    return render_template("resumo_cclass.html", data=data, session_id=sid)
+    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
 
 
 @app.route("/resumo-cclass")
 def resumo_cclass_page():
     sid, data = _get_resumo_data()
-    return render_template("resumo_cclass.html", data=data, session_id=sid)
+    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
 
 
 @app.route("/resumo-imposto")
 def resumo_imposto_page():
     sid, data = _get_resumo_data()
-    return render_template("resumo_imposto.html", data=data, session_id=sid)
+    return render_template("resumo_imposto.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
 
 @app.route("/resumo/csv")
 def resumo_csv_page():
@@ -999,6 +1020,7 @@ def resumo_csv_page():
 @app.route("/api/lote/processar", methods=["POST"])
 def api_lote_processar():
     try:
+        modulo = _get_modulo_from_request()
         if "zip_xmls" not in request.files:
             return jsonify({"success": False, "error": "Envie o ZIP no campo zip_xmls"}), 400
 
@@ -1056,11 +1078,17 @@ def api_lote_baixar(sid):
 @app.route("/api/nota/visualizar", methods=["POST"])
 def api_nota_visualizar():
     try:
+        modulo = _get_modulo_from_request()
         if "xml_nota" not in request.files:
             return jsonify({"success": False, "error": "Envie o arquivo no campo xml_nota"}), 400
         f = request.files["xml_nota"]
         xml_bytes = f.read()
-        dados = parse_xml_any(xml_bytes)
+        if modulo == "nfcom":
+            dados = parse_xml_any(xml_bytes)
+        elif modulo == "nfe":
+            dados = parse_xml_any(xml_bytes)
+        else:
+            dados = parse_xml_any(xml_bytes)
         if "error" in dados:
             return jsonify({"success": False, "error": dados["error"]}), 400
         return jsonify({"success": True, "data": dados})
@@ -1244,7 +1272,7 @@ def _process_zip_lote_async(sid: str, zip_path: str, remover_desconto: bool, rem
     except Exception as e:
         _set_lote_status(sid, status="error", done=True, error=str(e), finished_at=datetime.now().isoformat())
 
-def _process_zip_resumo(sid: str, zip_path: str):
+def _process_zip_resumo(sid: str, zip_path: str, modulo: str = "nfcom"):
     """
     Processa o ZIP em background e grava:
       - resumo:status:<sid> (progresso/estado)
@@ -1330,7 +1358,12 @@ def _process_zip_resumo(sid: str, zip_path: str):
             for i, name in enumerate(names, start=1):
                 try:
                     xml_bytes = z.read(name)
-                    d = parse_xml_any(xml_bytes)
+                    if modulo == "nfcom":
+                        d = parse_xml_any(xml_bytes)
+                    elif modulo == "nfe":
+                        d = parse_xml_any(xml_bytes)
+                    else:
+                        d = parse_xml_any(xml_bytes)
                     if "error" in d:
                         raise Exception(d["error"])
 
@@ -1847,6 +1880,7 @@ def resumo_status_light_page():
 @app.route("/api/resumo/upload", methods=["POST"])
 def api_resumo_upload():
     try:
+        modulo = _get_modulo_from_request()
         if "file" not in request.files:
             return jsonify({"success": False, "error": "Nenhum arquivo enviado"}), 400
         f = request.files["file"]
@@ -1864,7 +1898,7 @@ def api_resumo_upload():
         session["resumo_session_id"] = sid
         _set_status(sid, status="queued", progress=0, done=False, error=None, total=None, processed=0)
 
-        th = threading.Thread(target=_process_zip_resumo, args=(sid, zip_path), daemon=True)
+        th = threading.Thread(target=_process_zip_resumo, args=(sid, zip_path, modulo), daemon=True)
         th.start()
 
         return jsonify({"success": True, "session_id": sid})
@@ -2082,6 +2116,7 @@ def _process_lote_descricao_async(sid: str, in_zip_path: str, regras):
 @app.route("/api/csv/gerar", methods=["POST"])
 def api_csv_gerar():
     try:
+        modulo = _get_modulo_from_request()
         if "zip_xmls" not in request.files:
             return jsonify({"success": False, "error": "Envie o ZIP no campo zip_xmls"}), 400
 

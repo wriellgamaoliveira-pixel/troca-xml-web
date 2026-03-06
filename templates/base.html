@@ -24,7 +24,13 @@
         </div>
       </div>
 
-      <span class="badge"><i data-lucide="circle-dot"></i> Sem sessão</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label for="moduloSelector" class="kpi-label" style="margin:0;white-space:nowrap;">Módulo:</label>
+        <select name="modulo" id="moduloSelector" class="select" style="min-width:120px;">
+          <option value="nfcom" {% if (modulo or session.get('modulo','nfcom')) == 'nfcom' %}selected{% endif %}>NFCom</option>
+          <option value="nfe" {% if (modulo or session.get('modulo','nfcom')) == 'nfe' %}selected{% endif %}>NFe</option>
+        </select>
+      </div>
     </div>
   </nav>
 
@@ -33,6 +39,31 @@
   </main>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script>
+    window.__APP_MODULO__ = "{{ (modulo or session.get('modulo', 'nfcom'))|lower }}";
+    window.appendModuloToFormData = function(fd){
+      const sel = document.getElementById("moduloSelector");
+      const m = ((sel && sel.value) || window.__APP_MODULO__ || "nfcom").toLowerCase();
+      fd.append("modulo", (m === "nfe" ? "nfe" : "nfcom"));
+      return fd;
+    };
+    document.addEventListener("DOMContentLoaded", () => {
+      const sel = document.getElementById("moduloSelector");
+      if(!sel) return;
+      sel.addEventListener("change", async () => {
+        const fd = new FormData();
+        window.appendModuloToFormData(fd);
+        try {
+          const r = await fetch('/api/modulo', {method:'POST', body: fd});
+          const j = await r.json().catch(()=>({}));
+          if(r.ok && j.success){
+            window.__APP_MODULO__ = j.modulo || sel.value;
+          }
+        } catch(_) {}
+      });
+    });
+  </script>
+
   {% block extra_js %}{% endblock %}
 </body>
 </html>
