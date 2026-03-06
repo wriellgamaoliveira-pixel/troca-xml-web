@@ -17,18 +17,20 @@
         </a>
         <div class="nav-links">
           <a class="nav-link {% if request.path=='/' %}active{% endif %}" href="{{ url_for('index') }}"><i data-lucide="home" class="nav-icon"></i> Início</a>
-          <a class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}" href="{{ url_for('nota_page') }}"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
-          <a class="nav-link {% if request.path.startswith('/resumo-cclass') or request.path.startswith('/resumo/resultado') or request.path=='/resumo' %}active{% endif %}" href="{{ url_for('resumo_cclass_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Relatório por cClass</a>
-          <a class="nav-link {% if request.path.startswith('/resumo-imposto') %}active{% endif %}" href="{{ url_for('resumo_imposto_page') }}"><i data-lucide="receipt-text" class="nav-icon"></i> Relatório por Imposto</a>
-          <a class="nav-link {% if request.path.startswith('/alteracao-lote') %}active{% endif %}" href="{{ url_for('alteracao_lote_page') }}"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
+          <a class="nav-link {% if request.path.startswith('/nota') or request.path.endswith('/nota-unica') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/nota-unica"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-cclass') or request.path.startswith('/resumo/resultado') or request.path=='/resumo' or request.path.endswith('/resumo') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="bar-chart-3" class="nav-icon"></i> Relatório por cClass</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-imposto') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="receipt-text" class="nav-icon"></i> Relatório por Imposto</a>
+          <a class="nav-link {% if request.path.startswith('/alteracao-lote') or request.path.endswith('/alteracao') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
         </div>
       </div>
 
       <div style="display:flex;align-items:center;gap:10px;">
         <label for="moduloSelector" class="kpi-label" style="margin:0;white-space:nowrap;">Módulo:</label>
-        <select name="modulo" id="moduloSelector" class="select" style="min-width:120px;">
+        <select name="modulo" id="moduloSelector" class="select" style="min-width:140px;">
           <option value="nfcom" {% if (modulo or session.get('modulo','nfcom')) == 'nfcom' %}selected{% endif %}>NFCom</option>
-          <option value="nfe" {% if (modulo or session.get('modulo','nfcom')) == 'nfe' %}selected{% endif %}>NFe</option>
+          <option value="nfe" {% if (modulo or session.get('modulo','nfcom')) == 'nfe' %}selected{% endif %}>NF-e</option>
+          <option value="nfce" {% if (modulo or session.get('modulo','nfcom')) == 'nfce' %}selected{% endif %}>NFC-e</option>
+          <option value="nfse" {% if (modulo or session.get('modulo','nfcom')) == 'nfse' %}selected{% endif %}>NFS-e</option>
         </select>
       </div>
     </div>
@@ -40,11 +42,11 @@
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   <script>
-    window.__APP_MODULO__ = "{{ (modulo or session.get('modulo', 'nfcom'))|lower }}";
+    window.__APP_MODULO__ = "{{ (current_modulo or modulo or session.get('modulo', 'nfcom'))|lower }}";
     window.appendModuloToFormData = function(fd){
       const sel = document.getElementById("moduloSelector");
       const m = ((sel && sel.value) || window.__APP_MODULO__ || "nfcom").toLowerCase();
-      fd.append("modulo", (m === "nfe" ? "nfe" : "nfcom"));
+      fd.append("modulo", (["nfcom","nfe","nfce","nfse"].includes(m) ? m : "nfcom"));
       return fd;
     };
     document.addEventListener("DOMContentLoaded", () => {
@@ -57,7 +59,19 @@
           const r = await fetch('/api/modulo', {method:'POST', body: fd});
           const j = await r.json().catch(()=>({}));
           if(r.ok && j.success){
-            window.__APP_MODULO__ = j.modulo || sel.value;
+            const nextModulo = (j.modulo || sel.value || 'nfcom').toLowerCase();
+            window.__APP_MODULO__ = nextModulo;
+            const path = window.location.pathname || '/';
+            if (/^\/(nfcom|nfe|nfce|nfse)\/(resumo|nota-unica|alteracao)\/?$/.test(path)) {
+              const alvo = path.replace(/^\/(nfcom|nfe|nfce|nfse)\//, '/' + nextModulo + '/');
+              window.location.href = alvo;
+            } else if (path.startsWith('/nota')) {
+              window.location.href = '/' + nextModulo + '/nota-unica';
+            } else if (path.startsWith('/alteracao-lote')) {
+              window.location.href = '/' + nextModulo + '/alteracao';
+            } else if (path.startsWith('/resumo')) {
+              window.location.href = '/' + nextModulo + '/resumo';
+            }
           }
         } catch(_) {}
       });

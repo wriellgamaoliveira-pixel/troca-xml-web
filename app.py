@@ -6,9 +6,11 @@ import csv
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
+from modules import VALID_MODULES
 import zipfile
 import io
 import threading
+from importlib import import_module
 import time
 
 from lxml import etree
@@ -558,6 +560,15 @@ def parse_xml_any(xml_bytes: bytes):
             return {"error": f"Falha NFe: {e}"}
     return {"error": "Tipo XML não suportado (NFe/NFCom)"}
 
+
+def processar_xml(xml_bytes: bytes, modulo: str):
+    modulo_norm = _resolve_modulo(modulo)
+    try:
+        parser_mod = import_module(f"modules.{modulo_norm}.parser")
+        return parser_mod.processar_xml(xml_bytes)
+    except Exception as e:
+        return {"error": f"Falha no módulo {modulo_norm}: {e}"}
+
 # =========================================================
 # Páginas
 # =========================================================
@@ -565,7 +576,7 @@ def parse_xml_any(xml_bytes: bytes):
 
 def _resolve_modulo(value: str):
     v = (value or "").strip().lower()
-    return v if v in {"nfcom", "nfe"} else "nfcom"
+    return v if v in VALID_MODULES else "nfcom"
 
 
 def _get_modulo_from_request():
@@ -582,11 +593,13 @@ def api_set_modulo():
 
 @app.route("/")
 def index():
-    return render_template("index.html", modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("index.html", modulo=modulo, current_modulo=modulo)
 
 @app.route("/alteracao-lote")
 def alteracao_lote_page():
-    return render_template("alteracao_lote.html", modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("alteracao_lote.html", modulo=modulo, current_modulo=modulo)
 
 
 def _set_sessao_status(sid, **kw):
@@ -946,11 +959,13 @@ def api_cclass_remove_baixar(sid):
 
 @app.route("/nota")
 def nota_page():
-    return render_template("nota.html", modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("nota.html", modulo=modulo, current_modulo=modulo)
 
 @app.route("/resumo")
 def resumo_page():
-    return render_template("resumo.html", modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("resumo.html", modulo=modulo, current_modulo=modulo)
 
 
 
@@ -968,19 +983,46 @@ def _get_resumo_data(session_id=None):
 @app.route("/resumo/resultado")
 def resumo_resultado_page():
     sid, data = _get_resumo_data(session.get("resumo_session_id"))
-    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
 
 
 @app.route("/resumo-cclass")
 def resumo_cclass_page():
     sid, data = _get_resumo_data()
-    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
 
 
 @app.route("/resumo-imposto")
 def resumo_imposto_page():
     sid, data = _get_resumo_data()
-    return render_template("resumo_imposto.html", data=data, session_id=sid, modulo=session.get("modulo", "nfcom"))
+    modulo = session.get("modulo", "nfcom")
+    return render_template("resumo_imposto.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
+
+
+@app.route("/<modulo>/resumo")
+def modulo_resumo_page(modulo):
+    modulo = _resolve_modulo(modulo)
+    session["modulo"] = modulo
+    sid, data = _get_resumo_data()
+    return render_template("resumo_cclass.html", data=data, session_id=sid, modulo=modulo, current_modulo=modulo)
+
+
+@app.route("/<modulo>/alteracao")
+def modulo_alteracao_page(modulo):
+    modulo = _resolve_modulo(modulo)
+    session["modulo"] = modulo
+    return render_template("alteracao_lote.html", modulo=modulo, current_modulo=modulo)
+
+
+@app.route("/<modulo>/nota-unica")
+def modulo_nota_unica_page(modulo):
+    modulo = _resolve_modulo(modulo)
+    session["modulo"] = modulo
+    if modulo != "nfcom":
+        return ("Nota Única disponível inicialmente apenas para o módulo NFCom.", 404)
+    return render_template("nota.html", modulo=modulo, current_modulo=modulo)
 
 @app.route("/resumo/csv")
 def resumo_csv_page():
@@ -1083,12 +1125,7 @@ def api_nota_visualizar():
             return jsonify({"success": False, "error": "Envie o arquivo no campo xml_nota"}), 400
         f = request.files["xml_nota"]
         xml_bytes = f.read()
-        if modulo == "nfcom":
-            dados = parse_xml_any(xml_bytes)
-        elif modulo == "nfe":
-            dados = parse_xml_any(xml_bytes)
-        else:
-            dados = parse_xml_any(xml_bytes)
+        dados = processar_xml(xml_bytes, modulo)
         if "error" in dados:
             return jsonify({"success": False, "error": dados["error"]}), 400
         return jsonify({"success": True, "data": dados})
@@ -1358,12 +1395,7 @@ def _process_zip_resumo(sid: str, zip_path: str, modulo: str = "nfcom"):
             for i, name in enumerate(names, start=1):
                 try:
                     xml_bytes = z.read(name)
-                    if modulo == "nfcom":
-                        d = parse_xml_any(xml_bytes)
-                    elif modulo == "nfe":
-                        d = parse_xml_any(xml_bytes)
-                    else:
-                        d = parse_xml_any(xml_bytes)
+                    d = processar_xml(xml_bytes, modulo)
                     if "error" in d:
                         raise Exception(d["error"])
 
