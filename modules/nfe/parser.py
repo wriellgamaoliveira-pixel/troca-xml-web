@@ -64,6 +64,7 @@ def parse_nfe(xml_root):
         'mod': _find_text(ide, 'nfe:mod', ns),
         'tpNF': _find_text(ide, 'nfe:tpNF', ns),
         'finNFe': _find_text(ide, 'nfe:finNFe', ns),
+        'tpEmis': _find_text(ide, 'nfe:tpEmis', ns),
     }
 
     emit_end = _find_first(emit, 'nfe:enderEmit', ns)
@@ -165,10 +166,14 @@ def parse_nfe(xml_root):
             'ICMS': {
                 'tipo': icms_tipo,
                 'CST': _find_text(icms_no, 'nfe:CST', ns),
+                'CSOSN': _find_text(icms_no, 'nfe:CSOSN', ns),
                 'orig': _find_text(icms_no, 'nfe:orig', ns),
                 'vBC': _find_text(icms_no, 'nfe:vBC', ns),
                 'pICMS': _find_text(icms_no, 'nfe:pICMS', ns),
                 'vICMS': _find_text(icms_no, 'nfe:vICMS', ns),
+                'vBCST': _find_text(icms_no, 'nfe:vBCST', ns),
+                'vICMSST': _find_text(icms_no, 'nfe:vICMSST', ns),
+                'vFCP': _find_text(icms_no, 'nfe:vFCP', ns),
             },
             'PIS': {
                 'tipo': pis_tipo,
@@ -190,7 +195,11 @@ def parse_nfe(xml_root):
     totais = {
         'vBC': _find_text(total, 'nfe:vBC', ns),
         'vICMS': _find_text(total, 'nfe:vICMS', ns),
+        'vST': _find_text(total, 'nfe:vST', ns),
         'vProd': _find_text(total, 'nfe:vProd', ns),
+        'vFrete': _find_text(total, 'nfe:vFrete', ns),
+        'vSeg': _find_text(total, 'nfe:vSeg', ns),
+        'vDesc': _find_text(total, 'nfe:vDesc', ns),
         'vPIS': _find_text(total, 'nfe:vPIS', ns),
         'vCOFINS': _find_text(total, 'nfe:vCOFINS', ns),
         'vNF': _find_text(total, 'nfe:vNF', ns),

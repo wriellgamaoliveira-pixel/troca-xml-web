@@ -1,1 +1,121 @@
-<div class="card"><div class="card-content"><h1 class="page-title">Nota Única - NF-e</h1><p class="page-subtitle">Módulo isolado preparado. Nota Única será ativada em implementação específica.</p></div></div>
+{% extends "base.html" %}
+{% block title %}Nota Única NF-e - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Nota Única - NF-e (Modelo 55)</h1>
+<p class="page-subtitle">Envie um XML de NF-e para visualizar identificação, emitente, destinatário, itens e totais.</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Enviar XML</h2></div>
+  <div class="card-content">
+    <form method="post" enctype="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <input class="input" type="file" name="xml_nota_nfe" accept=".xml" required style="max-width:420px;">
+      <button class="btn" type="submit">Processar NF-e</button>
+    </form>
+    {% if error %}
+      <div class="note" style="margin-top:10px;border-color:#ef4444;background:#fef2f2;color:#991b1b;">{{ error }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if data %}
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Identificação</h2></div>
+    <div class="card-content">
+      <div class="summary-grid">
+        {% for k,v in data.identificacao.items() %}
+          <div><p class="kpi-label">{{ k }}</p><p class="kpi-value" style="font-size:15px;">{{ v or '-' }}</p></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Emitente</h2></div>
+    <div class="card-content">
+      <div class="summary-grid">
+        <div><p class="kpi-label">CNPJ</p><p class="kpi-value" style="font-size:15px;">{{ data.emitente.CNPJ or '-' }}</p></div>
+        <div><p class="kpi-label">Razão Social</p><p class="kpi-value" style="font-size:15px;">{{ data.emitente.xNome or '-' }}</p></div>
+        <div><p class="kpi-label">Fantasia</p><p class="kpi-value" style="font-size:15px;">{{ data.emitente.xFant or '-' }}</p></div>
+        <div><p class="kpi-label">IE</p><p class="kpi-value" style="font-size:15px;">{{ data.emitente.IE or '-' }}</p></div>
+        <div><p class="kpi-label">CRT</p><p class="kpi-value" style="font-size:15px;">{{ data.emitente.CRT or '-' }}</p></div>
+      </div>
+      <hr style="margin:12px 0;border:none;border-top:1px solid var(--border);">
+      <div class="summary-grid">
+        {% for k,v in data.emitente.enderEmit.items() %}
+          <div><p class="kpi-label">{{ k }}</p><p class="kpi-value" style="font-size:14px;">{{ v or '-' }}</p></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Destinatário</h2></div>
+    <div class="card-content">
+      <div class="summary-grid">
+        <div><p class="kpi-label">CNPJ</p><p class="kpi-value" style="font-size:15px;">{{ data.destinatario.CNPJ or '-' }}</p></div>
+        <div><p class="kpi-label">CPF</p><p class="kpi-value" style="font-size:15px;">{{ data.destinatario.CPF or '-' }}</p></div>
+        <div><p class="kpi-label">Nome</p><p class="kpi-value" style="font-size:15px;">{{ data.destinatario.xNome or '-' }}</p></div>
+        <div><p class="kpi-label">IE</p><p class="kpi-value" style="font-size:15px;">{{ data.destinatario.IE or '-' }}</p></div>
+      </div>
+      <hr style="margin:12px 0;border:none;border-top:1px solid var(--border);">
+      <div class="summary-grid">
+        {% for k,v in data.destinatario.enderDest.items() %}
+          <div><p class="kpi-label">{{ k }}</p><p class="kpi-value" style="font-size:14px;">{{ v or '-' }}</p></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Itens</h2></div>
+    <div class="card-content">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>cProd</th><th>xProd</th><th>NCM</th><th>CFOP</th>
+              <th>uCom</th><th>qCom</th><th>vUnCom</th><th>vProd</th>
+              <th>ICMS CST/CSOSN</th><th>vICMS</th><th>PIS CST</th><th>vPIS</th><th>COFINS CST</th><th>vCOFINS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in data.itens %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item.cProd }}</td>
+                <td>{{ item.xProd }}</td>
+                <td>{{ item.NCM }}</td>
+                <td>{{ item.CFOP }}</td>
+                <td>{{ item.uCom }}</td>
+                <td>{{ item.qCom }}</td>
+                <td>{{ item.vUnCom }}</td>
+                <td>{{ item.vProd }}</td>
+                <td>{{ item.ICMS.CST or item.ICMS.CSOSN or '-' }}</td>
+                <td>{{ item.ICMS.vICMS or '-' }}</td>
+                <td>{{ item.PIS.CST or '-' }}</td>
+                <td>{{ item.PIS.vPIS or '-' }}</td>
+                <td>{{ item.COFINS.CST or '-' }}</td>
+                <td>{{ item.COFINS.vCOFINS or '-' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="15" class="center">Sem itens</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">Totais (ICMSTot)</h2></div>
+    <div class="card-content">
+      <div class="summary-grid">
+        {% for k,v in data.totais.items() if not k.endswith('_num') %}
+          <div><p class="kpi-label">{{ k }}</p><p class="kpi-value" style="font-size:15px;">{{ v or '-' }}</p></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
