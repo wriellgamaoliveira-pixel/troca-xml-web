@@ -1,16 +1,28 @@
 from flask import Blueprint, render_template, request, session
 
 from .nota_unica import processar_nota_unica_nfe
+from .resumo import gerar_relatorio_ncm
 
 bp = Blueprint("nfe", __name__, url_prefix="/nfe", template_folder="templates")
 
 
-@bp.route("/resumo")
+@bp.route("/resumo", methods=["GET", "POST"])
 def resumo_page():
-    from app import _get_resumo_data
-    sid, data = _get_resumo_data()
     session["modulo"] = "nfe"
-    return render_template("nfe/resumo.html", data=data, session_id=sid, modulo="nfe", current_modulo="nfe")
+    data = None
+    error = None
+
+    if request.method == "POST":
+        zip_file = request.files.get("zip_xmls_nfe")
+        data, error = gerar_relatorio_ncm(zip_file)
+
+    return render_template(
+        "nfe/resumo_resultado.html",
+        data=data,
+        error=error,
+        modulo="nfe",
+        current_modulo="nfe",
+    )
 
 
 @bp.route("/alteracao")

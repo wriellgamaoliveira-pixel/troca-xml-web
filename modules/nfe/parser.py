@@ -1,6 +1,9 @@
 from lxml import etree
 
 
+NS = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
+
+
 def _tag_name(tag: str) -> str:
     return tag.split('}', 1)[-1] if '}' in tag else tag
 
@@ -11,7 +14,6 @@ def _find_first(node, path_with_ns: str, ns: dict):
     found = node.find(path_with_ns, ns) if ns else node.find(path_with_ns.replace('nfe:', ''))
     if found is not None:
         return found
-    # fallback namespace-agnostic by local-name
     parts = [p for p in path_with_ns.split('/') if p and p != '.']
     cur = node
     for p in parts:
@@ -44,8 +46,8 @@ def _to_float(v):
 
 
 def parse_nfe(xml_root):
-    ns_uri = etree.QName(xml_root).namespace or ''
-    ns = {'nfe': ns_uri} if ns_uri else {}
+    ns_uri = etree.QName(xml_root).namespace or NS['nfe']
+    ns = {'nfe': ns_uri}
 
     inf = _find_first(xml_root, './/nfe:infNFe', ns)
     if inf is None:
@@ -57,14 +59,26 @@ def parse_nfe(xml_root):
     total = _find_first(inf, 'nfe:total/nfe:ICMSTot', ns)
 
     identificacao = {
-        'nNF': _find_text(ide, 'nfe:nNF', ns),
-        'serie': _find_text(ide, 'nfe:serie', ns),
-        'dhEmi': _find_text(ide, 'nfe:dhEmi', ns),
+        'cUF': _find_text(ide, 'nfe:cUF', ns),
+        'cNF': _find_text(ide, 'nfe:cNF', ns),
         'natOp': _find_text(ide, 'nfe:natOp', ns),
         'mod': _find_text(ide, 'nfe:mod', ns),
+        'serie': _find_text(ide, 'nfe:serie', ns),
+        'nNF': _find_text(ide, 'nfe:nNF', ns),
+        'dhEmi': _find_text(ide, 'nfe:dhEmi', ns),
+        'dhSaiEnt': _find_text(ide, 'nfe:dhSaiEnt', ns),
         'tpNF': _find_text(ide, 'nfe:tpNF', ns),
-        'finNFe': _find_text(ide, 'nfe:finNFe', ns),
+        'idDest': _find_text(ide, 'nfe:idDest', ns),
+        'cMunFG': _find_text(ide, 'nfe:cMunFG', ns),
+        'tpImp': _find_text(ide, 'nfe:tpImp', ns),
         'tpEmis': _find_text(ide, 'nfe:tpEmis', ns),
+        'cDV': _find_text(ide, 'nfe:cDV', ns),
+        'tpAmb': _find_text(ide, 'nfe:tpAmb', ns),
+        'finNFe': _find_text(ide, 'nfe:finNFe', ns),
+        'indFinal': _find_text(ide, 'nfe:indFinal', ns),
+        'indPres': _find_text(ide, 'nfe:indPres', ns),
+        'procEmi': _find_text(ide, 'nfe:procEmi', ns),
+        'verProc': _find_text(ide, 'nfe:verProc', ns),
     }
 
     emit_end = _find_first(emit, 'nfe:enderEmit', ns)
@@ -77,6 +91,7 @@ def parse_nfe(xml_root):
         'enderEmit': {
             'xLgr': _find_text(emit_end, 'nfe:xLgr', ns),
             'nro': _find_text(emit_end, 'nfe:nro', ns),
+            'xCpl': _find_text(emit_end, 'nfe:xCpl', ns),
             'xBairro': _find_text(emit_end, 'nfe:xBairro', ns),
             'cMun': _find_text(emit_end, 'nfe:cMun', ns),
             'xMun': _find_text(emit_end, 'nfe:xMun', ns),
@@ -94,9 +109,11 @@ def parse_nfe(xml_root):
         'CPF': _find_text(dest, 'nfe:CPF', ns),
         'xNome': _find_text(dest, 'nfe:xNome', ns),
         'IE': _find_text(dest, 'nfe:IE', ns),
+        'indIEDest': _find_text(dest, 'nfe:indIEDest', ns),
         'enderDest': {
             'xLgr': _find_text(dest_end, 'nfe:xLgr', ns),
             'nro': _find_text(dest_end, 'nfe:nro', ns),
+            'xCpl': _find_text(dest_end, 'nfe:xCpl', ns),
             'xBairro': _find_text(dest_end, 'nfe:xBairro', ns),
             'cMun': _find_text(dest_end, 'nfe:cMun', ns),
             'xMun': _find_text(dest_end, 'nfe:xMun', ns),
@@ -108,7 +125,7 @@ def parse_nfe(xml_root):
         },
     }
 
-    dets = inf.findall('nfe:det', ns) if ns else inf.findall('det')
+    dets = inf.findall('nfe:det', ns)
     if not dets:
         dets = [el for el in inf.iter() if _tag_name(el.tag) == 'det']
 
@@ -117,7 +134,6 @@ def parse_nfe(xml_root):
         prod = _find_first(det, 'nfe:prod', ns)
         imposto = _find_first(det, 'nfe:imposto', ns)
 
-        # ICMS dinâmico (ICMS00, ICMS10, ICMS60, ...)
         icms_tipo = ''
         icms_no = None
         icms_wrap = _find_first(imposto, 'nfe:ICMS', ns)
@@ -155,6 +171,7 @@ def parse_nfe(xml_root):
                 break
 
         item = {
+            'nItem': det.get('nItem') or '',
             'cProd': _find_text(prod, 'nfe:cProd', ns),
             'xProd': _find_text(prod, 'nfe:xProd', ns),
             'NCM': _find_text(prod, 'nfe:NCM', ns),
@@ -163,11 +180,19 @@ def parse_nfe(xml_root):
             'qCom': _find_text(prod, 'nfe:qCom', ns),
             'vUnCom': _find_text(prod, 'nfe:vUnCom', ns),
             'vProd': _find_text(prod, 'nfe:vProd', ns),
+            'cEAN': _find_text(prod, 'nfe:cEAN', ns),
+            'cBarra': _find_text(prod, 'nfe:cBarra', ns),
+            'uTrib': _find_text(prod, 'nfe:uTrib', ns),
+            'qTrib': _find_text(prod, 'nfe:qTrib', ns),
+            'vUnTrib': _find_text(prod, 'nfe:vUnTrib', ns),
+            'vFrete': _find_text(prod, 'nfe:vFrete', ns),
+            'vSeg': _find_text(prod, 'nfe:vSeg', ns),
+            'vDesc': _find_text(prod, 'nfe:vDesc', ns),
+            'vOutro': _find_text(prod, 'nfe:vOutro', ns),
             'ICMS': {
                 'tipo': icms_tipo,
                 'CST': _find_text(icms_no, 'nfe:CST', ns),
                 'CSOSN': _find_text(icms_no, 'nfe:CSOSN', ns),
-                'orig': _find_text(icms_no, 'nfe:orig', ns),
                 'vBC': _find_text(icms_no, 'nfe:vBC', ns),
                 'pICMS': _find_text(icms_no, 'nfe:pICMS', ns),
                 'vICMS': _find_text(icms_no, 'nfe:vICMS', ns),
@@ -197,15 +222,15 @@ def parse_nfe(xml_root):
         'vICMS': _find_text(total, 'nfe:vICMS', ns),
         'vST': _find_text(total, 'nfe:vST', ns),
         'vProd': _find_text(total, 'nfe:vProd', ns),
-        'vFrete': _find_text(total, 'nfe:vFrete', ns),
-        'vSeg': _find_text(total, 'nfe:vSeg', ns),
-        'vDesc': _find_text(total, 'nfe:vDesc', ns),
         'vPIS': _find_text(total, 'nfe:vPIS', ns),
         'vCOFINS': _find_text(total, 'nfe:vCOFINS', ns),
         'vNF': _find_text(total, 'nfe:vNF', ns),
-        # numéricos auxiliares
+        'vFrete': _find_text(total, 'nfe:vFrete', ns),
+        'vSeg': _find_text(total, 'nfe:vSeg', ns),
+        'vDesc': _find_text(total, 'nfe:vDesc', ns),
         'vBC_num': _to_float(_find_text(total, 'nfe:vBC', ns)),
         'vICMS_num': _to_float(_find_text(total, 'nfe:vICMS', ns)),
+        'vST_num': _to_float(_find_text(total, 'nfe:vST', ns)),
         'vProd_num': _to_float(_find_text(total, 'nfe:vProd', ns)),
         'vPIS_num': _to_float(_find_text(total, 'nfe:vPIS', ns)),
         'vCOFINS_num': _to_float(_find_text(total, 'nfe:vCOFINS', ns)),

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Relatório por NCM (NF-e) - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Relatório por NCM - NF-e (Modelo 55)</h1>
+<p class="page-subtitle">Envie um ZIP com XMLs de NF-e para consolidar por NCM.</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Gerar Relatório</h2></div>
+  <div class="card-content">
+    <form method="post" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input class="input" type="file" name="zip_xmls_nfe" accept=".zip" required style="max-width:420px;">
+      <button class="btn" type="submit">Processar ZIP</button>
+    </form>
+    {% if error %}
+      <div class="note" style="margin-top:10px;border-color:#ef4444;background:#fef2f2;color:#991b1b;">{{ error }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if data %}
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      <div><p class="kpi-label">Arquivos no ZIP</p><p class="kpi-value">{{ data.total_arquivos }}</p></div>
+      <div><p class="kpi-label">NF-e processadas (mod 55)</p><p class="kpi-value">{{ data.total_ok }}</p></div>
+      <div style="grid-column:span 2;"><p class="kpi-label">Valor Total</p><p class="kpi-value primary">{{ data.total_geral_br }}</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="card chart-container">
+  <div class="card-header"><h2 class="card-title">Top 12 NCM (Valor Total)</h2></div>
+  <div class="card-content"><div class="chart-wrap"><canvas id="ncmChart"></canvas></div></div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Tabela por NCM</h2></div>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>NCM</th><th class="right">Qtd Itens</th><th class="right">Valor Total</th>
+            <th class="right">ICMS</th><th class="right">PIS</th><th class="right">COFINS</th>
+            <th class="right">FUST</th><th class="right">FUNTTEL</th><th class="right">IBS</th><th class="right">CBS</th>
+            <th class="right">Desconto</th><th class="right">Outras</th><th>Notas Relacionadas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.ncm_linhas %}
+          <tr>
+            <td>{{ row.ncm }}</td>
+            <td class="right">{{ row.qtd_itens }}</td>
+            <td class="right">{{ row.v_total_br }}</td>
+            <td class="right">{{ row.icms_br }}</td>
+            <td class="right">{{ row.pis_br }}</td>
+            <td class="right">{{ row.cofins_br }}</td>
+            <td class="right">R$ 0,00</td>
+            <td class="right">R$ 0,00</td>
+            <td class="right">R$ 0,00</td>
+            <td class="right">R$ 0,00</td>
+            <td class="right">{{ row.desconto_br }}</td>
+            <td class="right">{{ row.outras_br }}</td>
+            <td>
+              <details>
+                <summary>{{ row.notas|length }} notas</summary>
+                <div class="table-wrap" style="margin-top:8px;">
+                  <table>
+                    <thead><tr><th>nNF</th><th>Série</th><th>Data</th><th>cNF</th><th>Emitente</th><th>Destinatário</th><th class="right">Valor</th></tr></thead>
+                    <tbody>
+                      {% for n in row.notas %}
+                      <tr>
+                        <td>{{ n.nNF }}</td><td>{{ n.serie }}</td><td>{{ n.dhEmi }}</td><td>{{ n.cNF }}</td>
+                        <td>{{ n.emitente }}</td><td>{{ n.destinatario }}</td><td class="right">{{ n.valor_br }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="13" class="center">Sem dados por NCM.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Tabela de Itens (Todos)</h2></div>
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th><th>Descrição</th><th>NCM</th><th class="right">Qtd Itens</th><th class="right">Valor Total</th>
+            <th class="right">ICMS</th><th class="right">PIS</th><th class="right">COFINS</th>
+            <th class="right">FUST</th><th class="right">FUNTTEL</th><th class="right">IBS</th><th class="right">CBS</th>
+            <th class="right">Desconto</th><th class="right">Outras</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.item_linhas %}
+          <tr>
+            <td>{{ row.item }}</td><td>{{ row.desc }}</td><td>{{ row.ncm }}</td>
+            <td class="right">{{ row.qtd_itens }}</td><td class="right">{{ row.v_total_br }}</td>
+            <td class="right">{{ row.icms_br }}</td><td class="right">{{ row.pis_br }}</td><td class="right">{{ row.cofins_br }}</td>
+            <td class="right">R$ 0,00</td><td class="right">R$ 0,00</td><td class="right">R$ 0,00</td><td class="right">R$ 0,00</td>
+            <td class="right">{{ row.desconto_br }}</td><td class="right">{{ row.outras_br }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="14" class="center">Sem itens consolidados.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const labels = {{ data.labels|tojson }};
+  const valores = {{ data.valores|tojson }};
+  const canvas = document.getElementById('ncmChart');
+  if (canvas && labels.length) {
+    new Chart(canvas, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: valores }] },
+      options: { plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+</script>
+{% endif %}
+{% endblock %}
