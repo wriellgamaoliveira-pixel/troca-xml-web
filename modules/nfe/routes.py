@@ -6,8 +6,7 @@ from .resumo import gerar_relatorio_ncm
 bp = Blueprint("nfe", __name__, url_prefix="/nfe", template_folder="templates")
 
 
-@bp.route("/resumo", methods=["GET", "POST"])
-def resumo_page():
+def _render_relatorio_ncm():
     session["modulo"] = "nfe"
     data = None
     error = None
@@ -23,6 +22,16 @@ def resumo_page():
         modulo="nfe",
         current_modulo="nfe",
     )
+
+
+@bp.route("/resumo", methods=["GET", "POST"])
+def resumo_page():
+    return _render_relatorio_ncm()
+
+
+@bp.route("/relatorio-ncm", methods=["GET", "POST"])
+def relatorio_ncm_page():
+    return _render_relatorio_ncm()
 
 
 @bp.route("/alteracao")

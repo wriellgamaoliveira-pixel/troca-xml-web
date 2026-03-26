@@ -3,7 +3,7 @@
 
 {% block content %}
 <h1 class="page-title">Relatório por NCM - NF-e (Modelo 55)</h1>
-<p class="page-subtitle">Envie um ZIP com XMLs de NF-e para consolidar por NCM.</p>
+<p class="page-subtitle">Envie um ZIP com XMLs de NF-e (somente modelo 55).</p>
 
 <div class="card">
   <div class="card-header"><h2 class="card-title">Gerar Relatório</h2></div>
@@ -42,10 +42,14 @@
       <table>
         <thead>
           <tr>
-            <th>NCM</th><th class="right">Qtd Itens</th><th class="right">Valor Total</th>
-            <th class="right">ICMS</th><th class="right">PIS</th><th class="right">COFINS</th>
-            <th class="right">FUST</th><th class="right">FUNTTEL</th><th class="right">IBS</th><th class="right">CBS</th>
-            <th class="right">Desconto</th><th class="right">Outras</th><th>Notas Relacionadas</th>
+            <th>NCM</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">ICMS</th>
+            <th class="right">PIS</th>
+            <th class="right">COFINS</th>
+            <th class="right">Desconto</th>
+            <th class="right">Outras</th>
           </tr>
         </thead>
         <tbody>
@@ -57,24 +61,39 @@
             <td class="right">{{ row.icms_br }}</td>
             <td class="right">{{ row.pis_br }}</td>
             <td class="right">{{ row.cofins_br }}</td>
-            <td class="right">R$ 0,00</td>
-            <td class="right">R$ 0,00</td>
-            <td class="right">R$ 0,00</td>
-            <td class="right">R$ 0,00</td>
             <td class="right">{{ row.desconto_br }}</td>
             <td class="right">{{ row.outras_br }}</td>
-            <td>
+          </tr>
+          <tr>
+            <td colspan="8" style="background:#fafafa;">
               <details>
-                <summary>{{ row.notas|length }} notas</summary>
+                <summary><strong>Notas relacionadas ({{ row.notas|length }})</strong> — clique para expandir</summary>
                 <div class="table-wrap" style="margin-top:8px;">
                   <table>
-                    <thead><tr><th>nNF</th><th>Série</th><th>Data</th><th>cNF</th><th>Emitente</th><th>Destinatário</th><th class="right">Valor</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>nNF</th>
+                        <th>Série</th>
+                        <th>Data</th>
+                        <th>cNF</th>
+                        <th>Emitente</th>
+                        <th>Destinatário</th>
+                        <th class="right">Valor</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {% for n in row.notas %}
                       <tr>
-                        <td>{{ n.nNF }}</td><td>{{ n.serie }}</td><td>{{ n.dhEmi }}</td><td>{{ n.cNF }}</td>
-                        <td>{{ n.emitente }}</td><td>{{ n.destinatario }}</td><td class="right">{{ n.valor_br }}</td>
+                        <td>{{ n.nNF }}</td>
+                        <td>{{ n.serie }}</td>
+                        <td>{{ n.dhEmi }}</td>
+                        <td>{{ n.cNF }}</td>
+                        <td>{{ n.emitente }}</td>
+                        <td>{{ n.destinatario }}</td>
+                        <td class="right">{{ n.valor_br }}</td>
                       </tr>
+                      {% else %}
+                      <tr><td colspan="7" class="center">Sem notas relacionadas.</td></tr>
                       {% endfor %}
                     </tbody>
                   </table>
@@ -83,7 +102,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="13" class="center">Sem dados por NCM.</td></tr>
+          <tr><td colspan="8" class="center">Sem dados por NCM.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -98,23 +117,34 @@
       <table>
         <thead>
           <tr>
-            <th>Item</th><th>Descrição</th><th>NCM</th><th class="right">Qtd Itens</th><th class="right">Valor Total</th>
-            <th class="right">ICMS</th><th class="right">PIS</th><th class="right">COFINS</th>
-            <th class="right">FUST</th><th class="right">FUNTTEL</th><th class="right">IBS</th><th class="right">CBS</th>
-            <th class="right">Desconto</th><th class="right">Outras</th>
+            <th>Item</th>
+            <th>Descrição</th>
+            <th>NCM</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">ICMS</th>
+            <th class="right">PIS</th>
+            <th class="right">COFINS</th>
+            <th class="right">Desconto</th>
+            <th class="right">Outras</th>
           </tr>
         </thead>
         <tbody>
           {% for row in data.item_linhas %}
           <tr>
-            <td>{{ row.item }}</td><td>{{ row.desc }}</td><td>{{ row.ncm }}</td>
-            <td class="right">{{ row.qtd_itens }}</td><td class="right">{{ row.v_total_br }}</td>
-            <td class="right">{{ row.icms_br }}</td><td class="right">{{ row.pis_br }}</td><td class="right">{{ row.cofins_br }}</td>
-            <td class="right">R$ 0,00</td><td class="right">R$ 0,00</td><td class="right">R$ 0,00</td><td class="right">R$ 0,00</td>
-            <td class="right">{{ row.desconto_br }}</td><td class="right">{{ row.outras_br }}</td>
+            <td>{{ row.item }}</td>
+            <td>{{ row.desc }}</td>
+            <td>{{ row.ncm }}</td>
+            <td class="right">{{ row.qtd_itens }}</td>
+            <td class="right">{{ row.v_total_br }}</td>
+            <td class="right">{{ row.icms_br }}</td>
+            <td class="right">{{ row.pis_br }}</td>
+            <td class="right">{{ row.cofins_br }}</td>
+            <td class="right">{{ row.desconto_br }}</td>
+            <td class="right">{{ row.outras_br }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="14" class="center">Sem itens consolidados.</td></tr>
+          <tr><td colspan="10" class="center">Sem itens consolidados.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -129,9 +159,22 @@
   const canvas = document.getElementById('ncmChart');
   if (canvas && labels.length) {
     new Chart(canvas, {
-      type: 'pie',
-      data: { labels, datasets: [{ data: valores }] },
-      options: { plugins: { legend: { position: 'bottom' } } }
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Valor total por NCM',
+          data: valores,
+          backgroundColor: '#3b82f6'
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
     });
   }
 </script>

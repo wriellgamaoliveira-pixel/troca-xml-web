@@ -4,140 +4,153 @@ from collections import defaultdict
 
 from lxml import etree
 
-from .parser import parse_nfe
+from .parser import organizar_por_ncm, parse_nfe
 
 
 def _num(v):
     try:
-        return float(str(v or '0').replace(',', '.'))
+        return float(str(v or "0").replace(",", "."))
     except Exception:
         return 0.0
 
 
 def _money(v):
-    return f"R$ {v:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _nota_key(nota):
+    return (nota.get("nNF") or "", nota.get("serie") or "", nota.get("cNF") or "")
 
 
 def gerar_relatorio_ncm(zip_file_storage):
     if zip_file_storage is None:
-        return None, 'Selecione um arquivo ZIP com XMLs de NF-e.'
+        return None, "Selecione um arquivo ZIP com XMLs de NF-e."
 
     raw = zip_file_storage.read()
     if not raw:
-        return None, 'Arquivo ZIP vazio.'
+        return None, "Arquivo ZIP vazio."
 
-    by_ncm = defaultdict(lambda: {
-        'ncm': '', 'qtd_itens': 0, 'qtd_notas': 0,
-        'v_total': 0.0, 'icms': 0.0, 'pis': 0.0, 'cofins': 0.0,
-        'fust': 0.0, 'funttel': 0.0, 'ibs': 0.0, 'cbs': 0.0,
-        'desconto': 0.0, 'outras': 0.0,
-        'notas': []
-    })
-    by_item = defaultdict(lambda: {
-        'item': '', 'desc': '', 'ncm': '', 'qtd_itens': 0,
-        'v_total': 0.0, 'icms': 0.0, 'pis': 0.0, 'cofins': 0.0,
-        'fust': 0.0, 'funttel': 0.0, 'ibs': 0.0, 'cbs': 0.0,
-        'desconto': 0.0, 'outras': 0.0,
-    })
+    by_ncm = defaultdict(
+        lambda: {
+            "ncm": "",
+            "qtd_itens": 0,
+            "v_total": 0.0,
+            "icms": 0.0,
+            "pis": 0.0,
+            "cofins": 0.0,
+            "desconto": 0.0,
+            "outras": 0.0,
+            "notas": [],
+            "_nota_keys": set(),
+        }
+    )
+    by_item = defaultdict(
+        lambda: {
+            "item": "",
+            "desc": "",
+            "ncm": "",
+            "qtd_itens": 0,
+            "v_total": 0.0,
+            "icms": 0.0,
+            "pis": 0.0,
+            "cofins": 0.0,
+            "desconto": 0.0,
+            "outras": 0.0,
+        }
+    )
 
     total_arquivos = 0
     total_ok = 0
     total_geral = 0.0
 
     try:
-        with zipfile.ZipFile(io.BytesIO(raw), 'r') as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith('.xml')]
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
             total_arquivos = len(names)
 
             for name in names:
                 try:
                     root = etree.fromstring(zf.read(name))
-                    data = parse_nfe(root)
-                    ide = data.get('identificacao') or {}
-                    if (ide.get('mod') or '').strip() != '55':
-                        continue
-
+                    nota = parse_nfe(root)
+                    agrupado = organizar_por_ncm(nota)
                     total_ok += 1
-                    nota_ref = {
-                        'nNF': ide.get('nNF') or '',
-                        'serie': ide.get('serie') or '',
-                        'dhEmi': ide.get('dhEmi') or '',
-                        'cNF': ide.get('cNF') or '',
-                        'emitente': (data.get('emitente') or {}).get('xNome') or '',
-                        'destinatario': (data.get('destinatario') or {}).get('xNome') or '',
-                    }
 
-                    for it in data.get('itens') or []:
-                        ncm = (it.get('NCM') or '').strip() or 'SEM NCM'
-                        vprod = _num(it.get('vProd'))
-                        icms = _num((it.get('ICMS') or {}).get('vICMS'))
-                        pis = _num((it.get('PIS') or {}).get('vPIS'))
-                        cofins = _num((it.get('COFINS') or {}).get('vCOFINS'))
-                        desc = _num(it.get('vDesc'))
-                        outras = _num(it.get('vOutro'))
+                    for ncm, bloco in (agrupado.get("ncm") or {}).items():
+                        row = by_ncm[ncm]
+                        row["ncm"] = ncm
 
-                        rec = by_ncm[ncm]
-                        rec['ncm'] = ncm
-                        rec['qtd_itens'] += 1
-                        rec['qtd_notas'] += 1
-                        rec['v_total'] += vprod
-                        rec['icms'] += icms
-                        rec['pis'] += pis
-                        rec['cofins'] += cofins
-                        rec['desconto'] += desc
-                        rec['outras'] += outras
-                        if len(rec['notas']) < 200:
-                            rec['notas'].append({**nota_ref, 'valor': vprod, 'valor_br': _money(vprod)})
+                        for item in bloco.get("itens") or []:
+                            vprod = _num(item.get("vProd"))
+                            icms = _num((item.get("ICMS") or {}).get("vICMS"))
+                            pis = _num((item.get("PIS") or {}).get("vPIS"))
+                            cofins = _num((item.get("COFINS") or {}).get("vCOFINS"))
+                            desc = _num(item.get("vDesc"))
+                            outras = _num(item.get("vOutro"))
 
-                        item_key = (it.get('cProd') or '', it.get('xProd') or '', ncm)
-                        ir = by_item[item_key]
-                        ir['item'] = it.get('cProd') or ''
-                        ir['desc'] = it.get('xProd') or ''
-                        ir['ncm'] = ncm
-                        ir['qtd_itens'] += 1
-                        ir['v_total'] += vprod
-                        ir['icms'] += icms
-                        ir['pis'] += pis
-                        ir['cofins'] += cofins
-                        ir['desconto'] += desc
-                        ir['outras'] += outras
+                            row["qtd_itens"] += 1
+                            row["v_total"] += vprod
+                            row["icms"] += icms
+                            row["pis"] += pis
+                            row["cofins"] += cofins
+                            row["desconto"] += desc
+                            row["outras"] += outras
 
-                        total_geral += vprod
+                            item_key = (item.get("cProd") or "", item.get("xProd") or "", ncm)
+                            ir = by_item[item_key]
+                            ir["item"] = item.get("cProd") or ""
+                            ir["desc"] = item.get("xProd") or ""
+                            ir["ncm"] = ncm
+                            ir["qtd_itens"] += 1
+                            ir["v_total"] += vprod
+                            ir["icms"] += icms
+                            ir["pis"] += pis
+                            ir["cofins"] += cofins
+                            ir["desconto"] += desc
+                            ir["outras"] += outras
+
+                            total_geral += vprod
+
+                        for nota_ref in bloco.get("notas") or []:
+                            key = _nota_key(nota_ref)
+                            if key not in row["_nota_keys"]:
+                                row["_nota_keys"].add(key)
+                                row["notas"].append(nota_ref)
                 except Exception:
                     continue
 
-        ncm_linhas = sorted(by_ncm.values(), key=lambda x: x['v_total'], reverse=True)
-        item_linhas = sorted(by_item.values(), key=lambda x: x['v_total'], reverse=True)
+        ncm_linhas = sorted(by_ncm.values(), key=lambda x: x["v_total"], reverse=True)
+        item_linhas = sorted(by_item.values(), key=lambda x: x["v_total"], reverse=True)
 
         for row in ncm_linhas:
-            row['v_total_br'] = _money(row['v_total'])
-            row['icms_br'] = _money(row['icms'])
-            row['pis_br'] = _money(row['pis'])
-            row['cofins_br'] = _money(row['cofins'])
-            row['desconto_br'] = _money(row['desconto'])
-            row['outras_br'] = _money(row['outras'])
+            row.pop("_nota_keys", None)
+            row["v_total_br"] = _money(row["v_total"])
+            row["icms_br"] = _money(row["icms"])
+            row["pis_br"] = _money(row["pis"])
+            row["cofins_br"] = _money(row["cofins"])
+            row["desconto_br"] = _money(row["desconto"])
+            row["outras_br"] = _money(row["outras"])
 
         for row in item_linhas:
-            row['v_total_br'] = _money(row['v_total'])
-            row['icms_br'] = _money(row['icms'])
-            row['pis_br'] = _money(row['pis'])
-            row['cofins_br'] = _money(row['cofins'])
-            row['desconto_br'] = _money(row['desconto'])
-            row['outras_br'] = _money(row['outras'])
+            row["v_total_br"] = _money(row["v_total"])
+            row["icms_br"] = _money(row["icms"])
+            row["pis_br"] = _money(row["pis"])
+            row["cofins_br"] = _money(row["cofins"])
+            row["desconto_br"] = _money(row["desconto"])
+            row["outras_br"] = _money(row["outras"])
 
         top12 = ncm_linhas[:12]
-        labels = [r['ncm'] for r in top12]
-        valores = [r['v_total'] for r in top12]
+        labels = [r["ncm"] for r in top12]
+        valores = [r["v_total"] for r in top12]
 
         return {
-            'total_arquivos': total_arquivos,
-            'total_ok': total_ok,
-            'total_geral': total_geral,
-            'total_geral_br': _money(total_geral),
-            'labels': labels,
-            'valores': valores,
-            'ncm_linhas': ncm_linhas,
-            'item_linhas': item_linhas,
+            "total_arquivos": total_arquivos,
+            "total_ok": total_ok,
+            "total_geral": total_geral,
+            "total_geral_br": _money(total_geral),
+            "labels": labels,
+            "valores": valores,
+            "ncm_linhas": ncm_linhas,
+            "item_linhas": item_linhas,
         }, None
     except Exception as e:
-        return None, f'Falha ao processar ZIP: {e}'
+        return None, f"Falha ao processar ZIP: {e}"
