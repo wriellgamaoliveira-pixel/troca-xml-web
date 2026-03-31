@@ -4,7 +4,35 @@ from collections import defaultdict
 
 from lxml import etree
 
-from .parser import organizar_por_ncm, parse_nfe
+from .parser import organizar_por_ncm, parse_nfe, parse_nfe_itens_flat
+
+
+RELATORIO_CST_COLUMNS = [
+    ("tipo", "Tipo"),
+    ("cnpj", "Inscrição"),
+    ("numero_nota", "Documento"),
+    ("nome", "Nome Emit./Dest."),
+    ("cfop", "CFOP"),
+    ("produto", "Codigo Prod."),
+    ("descricao", "Descrição item"),
+    ("ncm", "NCM"),
+    ("qtd", "Qtd."),
+    ("v_unit", "Valor unitário"),
+    ("v_desc", "Valor Desc."),
+    ("v_prod", "Valor Cont."),
+    ("bc_icms", "Base do ICMS"),
+    ("aliq_icms", "Aliq. ICMS"),
+    ("v_icms", "Valor do ICMS"),
+    ("cst_pis", "CST PIS"),
+    ("bc_pis", "Base do PIS"),
+    ("aliq_pis", "Aliq. PIS"),
+    ("v_pis", "Valor do PIS"),
+    ("cst_cofins", "CST COFINS"),
+    ("bc_cofins", "Base COFINS"),
+    ("aliq_cofins", "Aliq. COFINS"),
+    ("v_cofins", "Valor COFINS"),
+    ("total", "Valor total"),
+]
 
 
 def _num(v):
@@ -20,6 +48,45 @@ def _money(v):
 
 def _nota_key(nota):
     return (nota.get("nNF") or "", nota.get("serie") or "", nota.get("cNF") or "")
+
+
+def gerar_relatorio_cst(zip_file_storage):
+    if zip_file_storage is None:
+        return None, "Selecione um arquivo ZIP com XMLs de NF-e."
+
+    raw = zip_file_storage.read()
+    if not raw:
+        return None, "Arquivo ZIP vazio."
+
+    linhas = []
+    total_arquivos = 0
+    total_ok = 0
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+            nomes = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+            total_arquivos = len(nomes)
+
+            for nome in nomes:
+                try:
+                    root = etree.fromstring(zf.read(nome))
+                    itens = parse_nfe_itens_flat(root)
+                    if not itens:
+                        continue
+                    linhas.extend(itens)
+                    total_ok += 1
+                except Exception:
+                    continue
+
+        return {
+            "linhas": linhas,
+            "total_arquivos": total_arquivos,
+            "total_ok": total_ok,
+            "total_itens": len(linhas),
+            "columns": RELATORIO_CST_COLUMNS,
+        }, None
+    except Exception as e:
+        return None, f"Falha ao processar ZIP: {e}"
 
 
 def gerar_relatorio_ncm(zip_file_storage):

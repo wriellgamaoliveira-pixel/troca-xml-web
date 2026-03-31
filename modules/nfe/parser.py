@@ -87,6 +87,73 @@ def _extract_cofins(imposto: etree._Element | None) -> dict[str, str]:
     }
 
 
+def _tipo_operacao(tp_nf: str) -> str:
+    return "Entrada" if (tp_nf or "").strip() == "0" else "Saída"
+
+
+def parse_nfe_itens_flat(xml_root: etree._Element) -> list[dict[str, str]]:
+    inf = _find(xml_root, ".//nfe:infNFe")
+    if inf is None:
+        raise ValueError("XML sem infNFe.")
+
+    ide = _find(inf, "nfe:ide")
+    emit = _find(inf, "nfe:emit")
+    dest = _find(inf, "nfe:dest")
+
+    mod = _text(ide, "nfe:mod")
+    if mod != "55":
+        raise ValueError(f"Modelo inválido para NF-e: {mod or 'vazio'}")
+
+    tipo = _tipo_operacao(_text(ide, "nfe:tpNF"))
+    cnpj = _text(emit, "nfe:CNPJ")
+    numero_nota = _text(ide, "nfe:nNF")
+    nome_emit = _text(emit, "nfe:xNome")
+    nome_dest = _text(dest, "nfe:xNome")
+    nome = nome_dest or nome_emit
+
+    linhas = []
+    for det in _findall(inf, "nfe:det"):
+        prod = _find(det, "nfe:prod")
+        imposto = _find(det, "nfe:imposto")
+
+        icms = _extract_icms(imposto)
+        pis = _extract_pis(imposto)
+        cofins = _extract_cofins(imposto)
+
+        v_prod = _text(prod, "nfe:vProd")
+
+        linhas.append(
+            {
+                "tipo": tipo,
+                "cnpj": cnpj,
+                "numero_nota": numero_nota,
+                "nome": nome,
+                "cfop": _text(prod, "nfe:CFOP"),
+                "produto": _text(prod, "nfe:cProd"),
+                "descricao": _text(prod, "nfe:xProd"),
+                "ncm": _text(prod, "nfe:NCM"),
+                "qtd": _text(prod, "nfe:qCom"),
+                "v_unit": _text(prod, "nfe:vUnCom"),
+                "v_desc": _text(prod, "nfe:vDesc"),
+                "v_prod": v_prod,
+                "bc_icms": icms.get("vBC") or "",
+                "aliq_icms": icms.get("pICMS") or "",
+                "v_icms": icms.get("vICMS") or "",
+                "cst_pis": pis.get("CST") or "",
+                "bc_pis": pis.get("vBC") or "",
+                "aliq_pis": pis.get("pPIS") or "",
+                "v_pis": pis.get("vPIS") or "",
+                "cst_cofins": cofins.get("CST") or "",
+                "bc_cofins": cofins.get("vBC") or "",
+                "aliq_cofins": cofins.get("pCOFINS") or "",
+                "v_cofins": cofins.get("vCOFINS") or "",
+                "total": v_prod,
+            }
+        )
+
+    return linhas
+
+
 def parse_nfe(xml_root: etree._Element) -> dict[str, Any]:
     inf = _find(xml_root, ".//nfe:infNFe")
     if inf is None:
