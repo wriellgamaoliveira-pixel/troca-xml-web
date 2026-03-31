@@ -15,11 +15,15 @@
         <a href="{{ url_for('index') }}" class="nav-logo">
           <i data-lucide="file-text"></i> Troca XML
         </a>
+        {% set active_modulo = (current_modulo or modulo or session.get('modulo','nfcom'))|lower %}
         <div class="nav-links">
           <a class="nav-link {% if request.path=='/' %}active{% endif %}" href="{{ url_for('index') }}"><i data-lucide="home" class="nav-icon"></i> Início</a>
           <a class="nav-link {% if request.path.startswith('/nota') or request.path.endswith('/nota-unica') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/nota-unica"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
           <a class="nav-link {% if request.path.startswith('/resumo-cclass') or request.path.startswith('/resumo/resultado') or request.path=='/resumo' or request.path.endswith('/resumo') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="bar-chart-3" class="nav-icon"></i> Relatório por cClass</a>
           <a class="nav-link {% if request.path.startswith('/resumo-imposto') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="receipt-text" class="nav-icon"></i> Relatório por Imposto</a>
+          {% if active_modulo == "nfe" %}
+          <a class="nav-link {% if request.path.startswith('/nfe/relatorio-cst') %}active{% endif %}" href="/nfe/relatorio-cst"><i data-lucide="table-properties" class="nav-icon"></i> Relatório CST</a>
+          {% endif %}
           <a class="nav-link {% if request.path.startswith('/alteracao-lote') or request.path.endswith('/alteracao') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
         </div>
       </div>
@@ -62,7 +66,7 @@
             const nextModulo = (j.modulo || sel.value || 'nfcom').toLowerCase();
             window.__APP_MODULO__ = nextModulo;
             const path = window.location.pathname || '/';
-            if (/^\/(nfcom|nfe|nfce|nfse)\/(resumo|nota-unica|alteracao)\/?$/.test(path)) {
+            if (/^\/(nfcom|nfe|nfce|nfse)\/(resumo|nota-unica|alteracao|relatorio-cst)\/?$/.test(path)) {
               const alvo = path.replace(/^\/(nfcom|nfe|nfce|nfse)\//, '/' + nextModulo + '/');
               window.location.href = alvo;
             } else if (path.startsWith('/nota')) {
