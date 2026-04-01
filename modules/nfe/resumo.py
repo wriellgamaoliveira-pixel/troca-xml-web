@@ -58,7 +58,7 @@ def _nota_key(nota):
     return (nota.get("nNF") or "", nota.get("serie") or "", nota.get("cNF") or "")
 
 
-def gerar_relatorio_cst(zip_file_storage):
+def gerar_relatorio_cst(zip_file_storage, progress_cb=None):
     if zip_file_storage is None:
         return None, "Selecione um arquivo ZIP com XMLs de NF-e."
 
@@ -75,16 +75,22 @@ def gerar_relatorio_cst(zip_file_storage):
             nomes = [n for n in zf.namelist() if n.lower().endswith(".xml")]
             total_arquivos = len(nomes)
 
-            for nome in nomes:
+            for idx, nome in enumerate(nomes):
                 try:
                     root = etree.fromstring(zf.read(nome))
                     itens = parse_nfe_itens_flat(root)
-                    if not itens:
-                        continue
-                    linhas.extend(itens)
-                    total_ok += 1
+                    if itens:
+                        linhas.extend(itens)
+                        total_ok += 1
                 except Exception:
-                    continue
+                    pass
+                finally:
+                    if progress_cb:
+                        progresso = int(((idx + 1) / max(len(nomes), 1)) * 100)
+                        progress_cb(progresso)
+
+            if progress_cb and not nomes:
+                progress_cb(100)
 
         campos_monetarios = {
             "v_unit",

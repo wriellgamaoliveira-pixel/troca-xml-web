@@ -8,10 +8,18 @@
 <div class="card">
   <div class="card-header"><h2 class="card-title">Processar ZIP</h2></div>
   <div class="card-content">
-    <form method="post" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <form id="cstForm" method="post" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <input class="input" type="file" name="zip_xmls_nfce" accept=".zip" required style="max-width:420px;">
       <button class="btn" type="submit">Gerar Relatório</button>
     </form>
+
+    <div id="progress-container" style="display:none; margin-top:12px;">
+      <label>Processando XMLs...</label>
+      <div style="width:100%; background:#eee; border-radius:5px;">
+        <div id="progress-bar" style="width:0%; height:20px; background:#4CAF50; border-radius:5px; text-align:center; color:white;">0%</div>
+      </div>
+    </div>
+
     {% if error %}
       <div class="note" style="margin-top:10px;border-color:#ef4444;background:#fef2f2;color:#991b1b;">{{ error }}</div>
     {% endif %}
@@ -61,4 +69,54 @@
   </div>
 </div>
 {% endif %}
+
+<script>
+(function() {
+  const form = document.getElementById('cstForm');
+  if (!form) return;
+
+  function atualizarProgresso(valor) {
+    const bar = document.getElementById('progress-bar');
+    bar.style.width = valor + "%";
+    bar.innerText = valor + "%";
+  }
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const pc = document.getElementById('progress-container');
+    pc.style.display = 'block';
+    atualizarProgresso(0);
+
+    const r = await fetch('/nfce/relatorio-cst/processar', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok || !j.success) {
+      alert((j && j.error) || 'Falha ao iniciar processamento.');
+      return;
+    }
+
+    const sid = j.sid;
+    const timer = setInterval(async () => {
+      const sr = await fetch('/nfce/relatorio-cst/status/' + sid);
+      const sj = await sr.json();
+      if (!sr.ok || !sj.success) {
+        clearInterval(timer);
+        alert((sj && sj.error) || 'Falha ao consultar progresso.');
+        return;
+      }
+
+      atualizarProgresso(sj.progress || 0);
+      if (sj.status === 'done') {
+        atualizarProgresso(100);
+        clearInterval(timer);
+        window.location.href = '/nfce/relatorio-cst?sid=' + sid;
+      }
+      if (sj.status === 'error') {
+        clearInterval(timer);
+        alert(sj.error || 'Falha no processamento.');
+      }
+    }, 500);
+  });
+})();
+</script>
 {% endblock %}
