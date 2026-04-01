@@ -34,6 +34,14 @@ RELATORIO_CST_COLUMNS = [
     ("total", "Valor total"),
 ]
 
+def formatar_valor_br(valor):
+    if valor is None:
+        return "0,00"
+    try:
+        return f"{float(str(valor).replace(',', '.')):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "0,00"
+
 
 def _num(v):
     try:
@@ -78,11 +86,31 @@ def gerar_relatorio_cst(zip_file_storage):
                 except Exception:
                     continue
 
+        campos_monetarios = {
+            "v_unit",
+            "v_desc",
+            "v_prod",
+            "bc_icms",
+            "v_icms",
+            "bc_pis",
+            "v_pis",
+            "bc_cofins",
+            "v_cofins",
+            "total",
+        }
+
+        linhas_formatadas = []
+        for linha in linhas:
+            nova = dict(linha)
+            for campo in campos_monetarios:
+                nova[campo] = formatar_valor_br(nova.get(campo))
+            linhas_formatadas.append(nova)
+
         return {
-            "linhas": linhas,
+            "linhas": linhas_formatadas,
             "total_arquivos": total_arquivos,
             "total_ok": total_ok,
-            "total_itens": len(linhas),
+            "total_itens": len(linhas_formatadas),
             "columns": RELATORIO_CST_COLUMNS,
         }, None
     except Exception as e:
