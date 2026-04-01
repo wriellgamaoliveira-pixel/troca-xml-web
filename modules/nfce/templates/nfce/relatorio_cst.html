@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Relatório CST NFC-e - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Relatório CST NFC-e</h1>
+<p class="page-subtitle">Relatório detalhado por item da NFC-e (modelo 65), sem gráficos.</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Processar ZIP</h2></div>
+  <div class="card-content">
+    <form method="post" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input class="input" type="file" name="zip_xmls_nfce" accept=".zip" required style="max-width:420px;">
+      <button class="btn" type="submit">Gerar Relatório</button>
+    </form>
+    {% if error %}
+      <div class="note" style="margin-top:10px;border-color:#ef4444;background:#fef2f2;color:#991b1b;">{{ error }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if data %}
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      <div><p class="kpi-label">Arquivos no ZIP</p><p class="kpi-value">{{ data.total_arquivos }}</p></div>
+      <div><p class="kpi-label">NFC-e válidas (mod 65)</p><p class="kpi-value">{{ data.total_ok }}</p></div>
+      <div><p class="kpi-label">Itens no relatório</p><p class="kpi-value">{{ data.total_itens }}</p></div>
+    </div>
+    <div style="margin-top:12px;">
+      <a class="btn" href="{{ url_for('nfce.relatorio_cst_csv') }}">Exportar CSV</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Tabela por Item</h2></div>
+  <div class="card-content">
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            {% for _, label in colunas %}
+            <th>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.linhas %}
+          <tr>
+            {% for key, _ in colunas %}
+            <td>{{ row[key] }}</td>
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr><td colspan="24" class="center">Sem itens para exibir.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
