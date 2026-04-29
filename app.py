@@ -2159,6 +2159,110 @@ def api_csv_baixar(sid):
     )
 
 
+import re
+from html import unescape
+
+
+def _clean_text(v: str) -> str:
+    return re.sub(r"\s+", " ", (v or "").strip())
+
+
+def _br_to_float(texto: str) -> float:
+    if not texto:
+        return 0.0
+    t = str(texto)
+    t = t.replace("R$", "").replace("%", "").replace("\xa0", " ").strip()
+    t = t.replace(".", "").replace(",", ".")
+    m = re.search(r"-?\d+(?:\.\d+)?", t)
+    if not m:
+        return 0.0
+    try:
+        return float(m.group(0))
+    except Exception:
+        return 0.0
+
+
+def _extrair_tabelas_html(raw_html: str):
+    tabelas = []
+    for t_html in re.findall(r"<table[\s\S]*?</table>", raw_html, flags=re.I):
+        rows = re.findall(r"<tr[\s\S]*?</tr>", t_html, flags=re.I)
+        parsed = []
+        for r in rows:
+            cells = re.findall(r"<(?:td|th)[^>]*>([\s\S]*?)</(?:td|th)>", r, flags=re.I)
+            cells = [_clean_text(unescape(re.sub(r"<[^>]+>", " ", c))) for c in cells]
+            if any(cells):
+                parsed.append(cells)
+        if not parsed:
+            continue
+        header = parsed[0]
+        body = parsed[1:] if len(parsed) > 1 else []
+        tabelas.append({"header": header, "rows": body})
+    return tabelas
+
+
+def _montar_dashboard_apuracao(raw_html: str):
+    tabelas = _extrair_tabelas_html(raw_html)
+    total_tabelas = len(tabelas)
+    total_linhas = sum(len(t.get("rows") or []) for t in tabelas)
+
+    total_faturamento = 0.0
+    total_tributos = 0.0
+    col_fat = []
+    col_labels = []
+
+    if tabelas:
+        primeira = tabelas[0]
+        header = primeira.get("header") or []
+        rows = primeira.get("rows") or []
+
+        idx_mes = next((i for i, h in enumerate(header) if "mês" in h.lower() or "mes" in h.lower()), 0)
+        idx_fat = next((i for i, h in enumerate(header) if "fatur" in h.lower()), None)
+        idx_tri = next((i for i, h in enumerate(header) if "tribut" in h.lower() or "imposto" in h.lower()), None)
+
+        for r in rows:
+            mes = r[idx_mes] if idx_mes < len(r) else f"Linha {len(col_labels)+1}"
+            fat = _br_to_float(r[idx_fat]) if idx_fat is not None and idx_fat < len(r) else 0.0
+            tri = _br_to_float(r[idx_tri]) if idx_tri is not None and idx_tri < len(r) else 0.0
+            col_labels.append(mes)
+            col_fat.append(fat)
+            total_faturamento += fat
+            total_tributos += tri
+
+    return {
+        "nome_arquivo": "APURACAO.html",
+        "total_tabelas": total_tabelas,
+        "total_linhas": total_linhas,
+        "total_faturamento": total_faturamento,
+        "total_faturamento_br": br_money(total_faturamento),
+        "total_tributos": total_tributos,
+        "total_tributos_br": br_money(total_tributos),
+        "aliquota_efetiva": (total_tributos / total_faturamento * 100.0) if total_faturamento else 0.0,
+        "labels_mensal": col_labels,
+        "valores_mensal": col_fat,
+        "tabelas": tabelas,
+    }
+
+
+@app.route('/apuracao', methods=['GET', 'POST'])
+def apuracao_dashboard_page():
+    data = None
+    error = None
+    if request.method == 'POST':
+        f = request.files.get('apuracao_html')
+        if not f:
+            error = 'Selecione um arquivo HTML de apuração.'
+        else:
+            try:
+                raw = f.read()
+                html_text = raw.decode('utf-8', errors='ignore')
+                data = _montar_dashboard_apuracao(html_text)
+                data['nome_arquivo'] = f.filename or 'APURACAO.html'
+            except Exception as e:
+                error = f'Falha ao processar HTML: {e}'
+
+    return render_template('apuracao_dashboard.html', data=data, error=error)
+
+
 # =========================================================
 # Dados exemplo
 # =========================================================

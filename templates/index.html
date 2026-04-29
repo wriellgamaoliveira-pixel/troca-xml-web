@@ -37,6 +37,14 @@
     {% endif %}
 
 
+
+    <a class="card" style="padding:16px;border-radius:14px;" href="/apuracao">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="layout-dashboard"></i><b>Dashboard de Apuração</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Upload de APURACAO.html com indicadores, tabelas e gráficos.</div>
+    </a>
+
     <a class="card" style="padding:16px;border-radius:14px;" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
         <i data-lucide="database"></i><b>Alteração em Lote</b>
