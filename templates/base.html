@@ -24,6 +24,7 @@
           {% if active_modulo == "nfe" %}
           <a class="nav-link {% if request.path.startswith('/nfe/relatorio-cst') %}active{% endif %}" href="/nfe/relatorio-cst"><i data-lucide="table-properties" class="nav-icon"></i> Relatório CST</a>
           {% endif %}
+          <a class="nav-link {% if request.path.startswith('/dashboard-apuracao') %}active{% endif %}" href="/dashboard-apuracao"><i data-lucide="layout-dashboard" class="nav-icon"></i> Dashboard de Apuração</a>
           <a class="nav-link {% if request.path.startswith('/alteracao-lote') or request.path.endswith('/alteracao') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
         </div>
       </div>
@@ -73,6 +74,8 @@
               window.location.href = '/' + nextModulo + '/nota-unica';
             } else if (path.startsWith('/alteracao-lote')) {
               window.location.href = '/' + nextModulo + '/alteracao';
+            } else if (path.startsWith('/dashboard-apuracao')) {
+              window.location.href = '/dashboard-apuracao';
             } else if (path.startsWith('/resumo')) {
               window.location.href = '/' + nextModulo + '/resumo';
             }

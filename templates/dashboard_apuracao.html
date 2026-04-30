@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Dashboard de Apuração{% endblock %}
+
+{% block content %}
+<style>
+  .ap-wrap{max-width:1500px;margin:0 auto;background:#f0f4f8;}
+  .ap-header{position:sticky;top:0;z-index:5;background:linear-gradient(135deg,#1a3c5e,#1a6e8e);color:#fff;padding:16px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .ap-upload{border:3px dashed #0d904f;border-radius:14px;padding:24px;text-align:center;background:#f5fbf7;margin:14px 0}
+  .ap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .ap-card{background:#fff;border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.08);border-left:4px solid #1a73e8}
+  .ap-table{overflow:auto;background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  .ap-table table{min-width:1200px;width:100%;border-collapse:collapse}
+  .ap-table th,.ap-table td{padding:10px;border-bottom:1px solid #ddd}
+  .ap-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:1000px){.ap-charts{grid-template-columns:1fr}}
+</style>
+<div class="ap-wrap">
+  <div class="ap-header">
+    <div><h2 style="margin:0">Dashboard de Apuração</h2><small>Sistema de Análise Financeira e Tributária</small></div>
+    <div><button class="btn btn-outline btn-sm" id="btnReset">Reiniciar</button></div>
+  </div>
+
+  <div class="ap-upload" id="dropZone">
+    <p>Arraste e solte o arquivo <b>APURACAO.htm</b> aqui ou clique para selecionar</p>
+    <input id="fileInput" type="file" accept=".htm,.html" style="display:none">
+    <button class="btn" id="btnPick" type="button">Carregar Arquivo</button>
+    <div id="uploadInfo" style="margin-top:8px;color:#1a73e8;font-weight:700"></div>
+  </div>
+
+  <div class="card" style="padding:12px;margin-bottom:12px;">
+    <label><b>Empresa:</b></label>
+    <select id="empresaSelect" class="select" style="max-width:620px;display:inline-block"></select>
+  </div>
+
+  <div class="ap-grid" id="cards"></div>
+
+  <div class="ap-table" style="margin-top:12px"><table id="tblReceitas"></table></div>
+  <div class="ap-table" style="margin-top:12px"><table id="tblTributos"></table></div>
+  <div class="ap-table" style="margin-top:12px"><table id="tblFolha"></table></div>
+
+  <div class="ap-charts" style="margin-top:12px">
+    <div class="card"><h3>Composição do Faturamento</h3><canvas id="cPizza"></canvas></div>
+    <div class="card"><h3>Faturamento Mensal</h3><canvas id="cFat"></canvas></div>
+    <div class="card"><h3>Tributos Acumulados</h3><canvas id="cTrib"></canvas></div>
+    <div class="card"><h3>Evolução Tributária</h3><canvas id="cEvo"></canvas></div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const allCompaniesData = {};
+let charts = {};
+const norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[^\w\s]/g,'').replace(/\s+/g,'_').trim();
+const brMoney = v => (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const num = v => {const t=String(v||'').replace(/R\$|\./g,'').replace(',', '.').replace('%','').trim();return parseFloat(t)||0};
+
+function parseHTM(text){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'text/html');
+  const table = doc.querySelector('table'); if(!table) throw new Error('Tabela principal não encontrada');
+  const hs = [...table.querySelectorAll('tr th')].map(x=>norm(x.textContent));
+  const rows = [...table.querySelectorAll('tr')].slice(1).map(tr=>[...tr.children].map(td=>td.textContent.trim()));
+  const idx = k=>hs.findIndex(h=>h===k || h.includes(k));
+  const map = {codi_emp:idx('codi_emp'),nome_emp:idx('nome_emp'),competencia:idx('competencia'),saidas:idx('saidas'),pis:idx('pis'),cofins:idx('cofins'),icms:idx('icms'),sva:idx('sva'),livros:idx('livros'),scm:idx('scm'),irpj:idx('irpj'),csll:idx('csll')};
+  rows.forEach(r=>{const c=r[map.codi_emp]||'N/D'; const nome=r[map.nome_emp]||'N/D'; if(!allCompaniesData[c]) allCompaniesData[c]={nome,registros:[]}; allCompaniesData[c].registros.push({
+    competencia:r[map.competencia]||'', saidas:num(r[map.saidas]), pis:num(r[map.pis]), cofins:num(r[map.cofins]), icms:num(r[map.icms]), sva:num(r[map.sva]), livros:num(r[map.livros]), scm:num(r[map.scm]), irpj:num(r[map.irpj]), csll:num(r[map.csll])
+  })});
+}
+function pct(v,t){return t? (v/t*100):0}
+function variacao(a,b){return b?((a-b)/b*100):0}
+function byComp(a,b){return a.competencia.localeCompare(b.competencia)}
+
+function render(){
+ const sel=document.getElementById('empresaSelect'); const k=sel.value; const d=allCompaniesData[k]; if(!d) return;
+ const regs=[...d.registros].sort(byComp); const totFat=regs.reduce((s,r)=>s+r.saidas,0); const totTrib=regs.reduce((s,r)=>s+r.pis+r.cofins+r.icms+r.irpj+r.csll,0);
+ const cards=[['Ticket Médio', brMoney(totFat/(regs.length||1))],['Total Clientes','N/D'],['Liquidez','N/D'],['Faturamento Acumulado', brMoney(totFat)]];
+ document.getElementById('cards').innerHTML=cards.map(c=>`<div class='ap-card'><div style='color:#5f6368'>${c[0]}</div><div style='font-size:32px;font-weight:700'>${c[1]}</div></div>`).join('');
+ 
+ let h1='<tr><th>Mês</th><th>Faturamento</th><th>SVA</th><th>Livros</th><th>SCM</th><th>Serviço</th><th>Var. %</th></tr>';
+ let b1=''; regs.forEach((r,i)=>{const serv=r.saidas-r.sva-r.livros-r.scm; const prev=regs[i-1]?.saidas||0; b1+=`<tr><td>${r.competencia}</td><td>${brMoney(r.saidas)}</td><td>${brMoney(r.sva)} (${pct(r.sva,r.saidas).toFixed(1)}%)</td><td>${brMoney(r.livros)} (${pct(r.livros,r.saidas).toFixed(1)}%)</td><td>${brMoney(r.scm)} (${pct(r.scm,r.saidas).toFixed(1)}%)</td><td>${brMoney(serv)} (${pct(serv,r.saidas).toFixed(1)}%)</td><td>${variacao(r.saidas,prev).toFixed(1)}%</td></tr>`});
+ document.getElementById('tblReceitas').innerHTML='<thead>'+h1+'</thead><tbody>'+b1+'</tbody>';
+ 
+ let h2='<tr><th>Mês</th><th>PIS</th><th>COFINS</th><th>ICMS</th><th>IRPJ</th><th>CSLL</th><th>Total</th><th>Alíquota efetiva</th><th>Variação %</th></tr>';
+ let b2=''; regs.forEach((r,i)=>{const t=r.pis+r.cofins+r.icms+r.irpj+r.csll; const prev=(regs[i-1]?.pis||0)+(regs[i-1]?.cofins||0)+(regs[i-1]?.icms||0)+(regs[i-1]?.irpj||0)+(regs[i-1]?.csll||0); b2+=`<tr><td>${r.competencia}</td><td>${brMoney(r.pis)}</td><td>${brMoney(r.cofins)}</td><td>${brMoney(r.icms)}</td><td>${brMoney(r.irpj)}</td><td>${brMoney(r.csll)}</td><td>${brMoney(t)}</td><td>${pct(t,r.saidas).toFixed(2)}%</td><td>${variacao(t,prev).toFixed(1)}%</td></tr>`});
+ document.getElementById('tblTributos').innerHTML='<thead>'+h2+'</thead><tbody>'+b2+'</tbody>';
+ document.getElementById('tblFolha').innerHTML='<thead><tr><th>Mês</th><th>Proventos</th><th>Nº Funcionários</th><th>Variação</th></tr></thead><tbody>'+regs.map((r,i)=>`<tr><td>${r.competencia}</td><td>N/D</td><td>N/D</td><td>${i?variacao(r.saidas,regs[i-1].saidas).toFixed(1)+'%':'—'}</td></tr>`).join('')+'</tbody>';
+ 
+ const labels=regs.map(r=>r.competencia), fats=regs.map(r=>r.saidas), trib=regs.map(r=>r.pis+r.cofins+r.icms+r.irpj+r.csll);
+ const sumSVA=regs.reduce((s,r)=>s+r.sva,0),sumLiv=regs.reduce((s,r)=>s+r.livros,0),sumSCM=regs.reduce((s,r)=>s+r.scm,0),sumServ=totFat-sumSVA-sumLiv-sumSCM;
+ Object.values(charts).forEach(c=>c&&c.destroy());
+ charts.pizza=new Chart(document.getElementById('cPizza'),{type:'doughnut',data:{labels:['SVA','Livros','SCM','Serviços'],datasets:[{data:[sumSVA,sumLiv,sumSCM,sumServ],backgroundColor:['#1a73e8','#0d904f','#fbbc04','#d93025']} ]}});
+ charts.fat=new Chart(document.getElementById('cFat'),{type:'bar',data:{labels,datasets:[{label:'Faturamento',data:fats,backgroundColor:'#1a73e8'}]}});
+ charts.trib=new Chart(document.getElementById('cTrib'),{type:'bar',data:{labels:['PIS','COFINS','ICMS','IRPJ','CSLL'],datasets:[{label:'Acumulado',data:[regs.reduce((s,r)=>s+r.pis,0),regs.reduce((s,r)=>s+r.cofins,0),regs.reduce((s,r)=>s+r.icms,0),regs.reduce((s,r)=>s+r.irpj,0),regs.reduce((s,r)=>s+r.csll,0)],backgroundColor:['#fb8c00','#f44336','#9c27b0','#1e88e5','#4caf50']} ]}});
+ charts.evo=new Chart(document.getElementById('cEvo'),{type:'line',data:{labels,datasets:[{label:'Total Tributos',data:trib,borderColor:'#d93025',backgroundColor:'#d93025'}]}});
+}
+
+function fillCompanies(){ const sel=document.getElementById('empresaSelect'); sel.innerHTML=Object.entries(allCompaniesData).map(([k,v])=>`<option value='${k}'>${v.nome} (Cód. ${k})</option>`).join(''); sel.onchange=render; render(); }
+
+document.getElementById('btnPick').onclick=()=>document.getElementById('fileInput').click();
+document.getElementById('btnReset').onclick=()=>location.reload();
+document.getElementById('fileInput').addEventListener('change', async (e)=>{const f=e.target.files[0]; if(!f) return; const txt=await f.text(); Object.keys(allCompaniesData).forEach(k=>delete allCompaniesData[k]); parseHTM(txt); document.getElementById('uploadInfo').textContent=`✅ ${f.name} (${Object.keys(allCompaniesData).length} empresas)`; fillCompanies();});
+const dz=document.getElementById('dropZone'); dz.addEventListener('dragover',e=>{e.preventDefault();dz.style.borderColor='#1a73e8'}); dz.addEventListener('dragleave',()=>dz.style.borderColor='#0d904f'); dz.addEventListener('drop',async e=>{e.preventDefault();dz.style.borderColor='#0d904f'; const f=e.dataTransfer.files[0]; if(!f) return; const txt=await f.text(); Object.keys(allCompaniesData).forEach(k=>delete allCompaniesData[k]); parseHTM(txt); document.getElementById('uploadInfo').textContent=`✅ ${f.name} (${Object.keys(allCompaniesData).length} empresas)`; fillCompanies();});
+</script>
+{% endblock %}
