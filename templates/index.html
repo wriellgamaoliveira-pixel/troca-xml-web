@@ -2,6 +2,7 @@
 {% block title %}Início - Troca XML{% endblock %}
 
 {% block content %}
+{% set active_modulo = (current_modulo or modulo or session.get('modulo','nfcom'))|lower %}
 <h1 class="page-title">Troca XML</h1>
 <p class="page-subtitle">Processamento de XMLs (NFCom e NFe) com resumo, lote e exportação.</p>
 
@@ -10,23 +11,45 @@
     <h2 class="card-title">Atalhos</h2>
   </div>
   <div class="card-content" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;">
-    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('resumo_page') }}">
+    <a class="card" style="padding:16px;border-radius:14px;" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-        <i data-lucide="bar-chart-3"></i><b>Resumo</b>
+        <i data-lucide="bar-chart-3"></i><b>Relatório por cClass</b>
       </div>
       <div style="color:var(--muted);font-size:13px;">Relatório por cClass/itens/impostos com filtros</div>
     </a>
-    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('lote_page') }}">
+
+    {% if active_modulo == 'nfe' %}
+    <a class="card" style="padding:16px;border-radius:14px;" href="/nfe/relatorio-cst">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-        <i data-lucide="archive"></i><b>Lote</b>
+        <i data-lucide="table-properties"></i><b>Relatório CST NF-e</b>
       </div>
-      <div style="color:var(--muted);font-size:13px;">Envie ZIP, aplique regras e baixe ZIP</div>
+      <div style="color:var(--muted);font-size:13px;">Relatório detalhado por item da NF-e com impostos (ICMS, PIS, COFINS) e exportação CSV.</div>
     </a>
-    <a class="card" style="padding:16px;border-radius:14px;" href="{{ url_for('csv_page') }}">
+    {% endif %}
+
+    {% if active_modulo == 'nfce' %}
+    <a class="card" style="padding:16px;border-radius:14px;" href="/nfce/relatorio-cst">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-        <i data-lucide="file-spreadsheet"></i><b>CSV</b>
+        <i data-lucide="table-properties"></i><b>Relatório CST NFC-e</b>
       </div>
-      <div style="color:var(--muted);font-size:13px;">Exportação rápida para planilha</div>
+      <div style="color:var(--muted);font-size:13px;">Relatório detalhado por item da NFC-e com impostos (ICMS, PIS, COFINS) e exportação CSV.</div>
+    </a>
+    {% endif %}
+
+
+
+    <a class="card" style="padding:16px;border-radius:14px;" href="/dashboard-apuracao">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="layout-dashboard"></i><b>Dashboard de Apuração</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Upload de APURACAO.html com indicadores, tabelas e gráficos.</div>
+    </a>
+
+    <a class="card" style="padding:16px;border-radius:14px;" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <i data-lucide="database"></i><b>Alteração em Lote</b>
+      </div>
+      <div style="color:var(--muted);font-size:13px;">Alterações por cClass/CFOP, descrição e remoção de CFOP por ICMS</div>
     </a>
   </div>
 </div>

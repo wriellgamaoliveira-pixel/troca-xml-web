@@ -28,14 +28,18 @@
             <tr>
               <th>cClass</th>
               <th>CFOP</th>
+              <th>Cód. Produto</th>
               <th>Descrição</th>
               <th>Unidade</th>
               <th class="right">Qtd</th>
               <th class="right">Valor Unit.</th>
               <th class="right">Valor Total</th>
+              <th class="right">Desconto</th>
+              <th class="right">Outras</th>
+              <th class="right">FUST</th>
+              <th class="right">FUNTTEL</th>
+              <th class="right">IBS/CBS</th>
               <th class="right">PIS/COFINS</th>
-              <th class="right">BC ICMS</th>
-              <th class="right">Alíq ICMS</th>
               <th class="right">ICMS</th>
             </tr>
           </thead>
@@ -112,22 +116,21 @@
 
   function renderTotals(d){
     const t = d.totais || {};
-    // NFCom tem vBC/vICMS/vPIS/vCOFINS/vFUST/vFUNTTEL/vNF
-    // NFe mínimo pode ter vNF
     const blocks = [];
-    if(t.vBC) blocks.push(kpi('Base de Cálculo ICMS', t.vBC));
-    if(t.vICMS) blocks.push(kpi('Valor ICMS', t.vICMS));
-    if(t.vPIS) blocks.push(kpi('PIS', t.vPIS));
-    if(t.vCOFINS) blocks.push(kpi('COFINS', t.vCOFINS));
-    if(t.vFUST) blocks.push(kpi('FUST', t.vFUST));
-    if(t.vFUNTTEL) blocks.push(kpi('FUNTTEL', t.vFUNTTEL));
+    if(t.vICMS_total) blocks.push(kpi('Total ICMS', t.vICMS_total));
+    if(t.vPIS_total) blocks.push(kpi('Total PIS', t.vPIS_total));
+    if(t.vCOFINS_total) blocks.push(kpi('Total COFINS', t.vCOFINS_total));
+    if(t.vFUST_total) blocks.push(kpi('Total FUST', t.vFUST_total));
+    if(t.vFUNTTEL_total) blocks.push(kpi('Total FUNTTEL', t.vFUNTTEL_total));
+    if(t.vDesc_total) blocks.push(kpi('Total Desconto', t.vDesc_total));
+    if(t.vOutro_total) blocks.push(kpi('Total Outras', t.vOutro_total));
+    if(t.vIBSCBS_total) blocks.push(kpi('Total IBS/CBS', t.vIBSCBS_total));
     if(t.vNF) blocks.push(`
       <div class="card" style="padding:16px;border-radius:14px;border:1px solid var(--border);box-shadow:none;background:#0b1220;color:#fff;grid-column:span 2;">
         <div class="kpi-label" style="color:rgba(255,255,255,.75)">Valor Total a Pagar</div>
         <div class="kpi-value" style="color:#fff;">${t.vNF}</div>
       </div>
     `);
-    if(t.vRetTribTot) blocks.push(kpi('Total Retido (vRetTribTot)', t.vRetTribTot));
     return blocks.join('');
   }
 
@@ -147,7 +150,7 @@
     const itens = d.itens || [];
 
     if(!itens.length){
-      tb.innerHTML = `<tr><td colspan="11" class="center" style="padding:16px;color:var(--muted)">Nenhum item encontrado.</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="15" class="center" style="padding:16px;color:var(--muted)">Nenhum item encontrado.</td></tr>`;
       return;
     }
 
@@ -156,14 +159,18 @@
         <tr>
           <td>${it.cClass || it.cClass === 0 ? it.cClass : '-'}</td>
           <td>${it.CFOP || '-'}</td>
+          <td>${it.cProd || '-'}</td>
           <td>${it.desc || it.xProd || '-'}</td>
           <td>${it.un || '-'}</td>
           <td class="right">${it.qtd || '-'}</td>
           <td class="right">${it.v_unit || '-'}</td>
           <td class="right">${it.v_total || it.vProd_br || '-'}</td>
+          <td class="right">${it.vDesc || '-'}</td>
+          <td class="right">${it.vOutro || '-'}</td>
+          <td class="right">${it.vFUST || '-'}</td>
+          <td class="right">${it.vFUNTTEL || '-'}</td>
+          <td class="right">${it.ibs_cbs || '-'}</td>
           <td class="right">${it.pis_cofins || '-'}</td>
-          <td class="right">${it.bc_icms || '-'}</td>
-          <td class="right">${it.aliq_icms || '-'}</td>
           <td class="right">${it.icms || '-'}</td>
         </tr>
       `);
@@ -176,6 +183,7 @@
     if(!f) return alert('Selecione um XML.');
 
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('xml_nota', f);
 
     const r = await fetch('/api/nota/visualizar', {method:'POST', body: fd});

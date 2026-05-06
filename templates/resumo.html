@@ -85,6 +85,7 @@
     if(!file) return alert('Selecione um ZIP.');
 
     const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
     fd.append('file', file);
 
     progressContainer.classList.remove('hidden');

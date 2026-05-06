@@ -15,17 +15,29 @@
         <a href="{{ url_for('index') }}" class="nav-logo">
           <i data-lucide="file-text"></i> Troca XML
         </a>
+        {% set active_modulo = (current_modulo or modulo or session.get('modulo','nfcom'))|lower %}
         <div class="nav-links">
           <a class="nav-link {% if request.path=='/' %}active{% endif %}" href="{{ url_for('index') }}"><i data-lucide="home" class="nav-icon"></i> Início</a>
-          <a class="nav-link {% if request.path.startswith('/sessao') %}active{% endif %}" href="{{ url_for('sessao_page') }}"><i data-lucide="database" class="nav-icon"></i> Sessao</a>
-          <a class="nav-link {% if request.path.startswith('/nota') %}active{% endif %}" href="{{ url_for('nota_page') }}"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
-          <a class="nav-link {% if request.path.startswith('/lote') %}active{% endif %}" href="{{ url_for('lote_page') }}"><i data-lucide="archive" class="nav-icon"></i> Lote</a>
-          <a class="nav-link {% if request.path.startswith('/resumo') %}active{% endif %}" href="{{ url_for('resumo_page') }}"><i data-lucide="bar-chart-3" class="nav-icon"></i> Resumo</a>
-          <a class="nav-link {% if request.path.startswith('/csv') %}active{% endif %}" href="{{ url_for('csv_page') }}"><i data-lucide="file-spreadsheet" class="nav-icon"></i> CSV</a>
+          <a class="nav-link {% if request.path.startswith('/nota') or request.path.endswith('/nota-unica') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/nota-unica"><i data-lucide="file-search" class="nav-icon"></i> Nota Única</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-cclass') or request.path.startswith('/resumo/resultado') or request.path=='/resumo' or request.path.endswith('/resumo') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="bar-chart-3" class="nav-icon"></i> Relatório por cClass</a>
+          <a class="nav-link {% if request.path.startswith('/resumo-imposto') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/resumo"><i data-lucide="receipt-text" class="nav-icon"></i> Relatório por Imposto</a>
+          {% if active_modulo == "nfe" %}
+          <a class="nav-link {% if request.path.startswith('/nfe/relatorio-cst') %}active{% endif %}" href="/nfe/relatorio-cst"><i data-lucide="table-properties" class="nav-icon"></i> Relatório CST</a>
+          {% endif %}
+          <a class="nav-link {% if request.path.startswith('/dashboard-apuracao') %}active{% endif %}" href="/dashboard-apuracao"><i data-lucide="layout-dashboard" class="nav-icon"></i> Dashboard de Apuração</a>
+          <a class="nav-link {% if request.path.startswith('/alteracao-lote') or request.path.endswith('/alteracao') %}active{% endif %}" href="/{{ current_modulo or modulo or session.get('modulo','nfcom') }}/alteracao"><i data-lucide="database" class="nav-icon"></i> Alteração em Lote</a>
         </div>
       </div>
 
-      <span class="badge"><i data-lucide="circle-dot"></i> Sem sessão</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label for="moduloSelector" class="kpi-label" style="margin:0;white-space:nowrap;">Módulo:</label>
+        <select name="modulo" id="moduloSelector" class="select" style="min-width:140px;">
+          <option value="nfcom" {% if (modulo or session.get('modulo','nfcom')) == 'nfcom' %}selected{% endif %}>NFCom</option>
+          <option value="nfe" {% if (modulo or session.get('modulo','nfcom')) == 'nfe' %}selected{% endif %}>NF-e</option>
+          <option value="nfce" {% if (modulo or session.get('modulo','nfcom')) == 'nfce' %}selected{% endif %}>NFC-e</option>
+          <option value="nfse" {% if (modulo or session.get('modulo','nfcom')) == 'nfse' %}selected{% endif %}>NFS-e</option>
+        </select>
+      </div>
     </div>
   </nav>
 
@@ -34,6 +46,45 @@
   </main>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script>
+    window.__APP_MODULO__ = "{{ (current_modulo or modulo or session.get('modulo', 'nfcom'))|lower }}";
+    window.appendModuloToFormData = function(fd){
+      const sel = document.getElementById("moduloSelector");
+      const m = ((sel && sel.value) || window.__APP_MODULO__ || "nfcom").toLowerCase();
+      fd.append("modulo", (["nfcom","nfe","nfce","nfse"].includes(m) ? m : "nfcom"));
+      return fd;
+    };
+    document.addEventListener("DOMContentLoaded", () => {
+      const sel = document.getElementById("moduloSelector");
+      if(!sel) return;
+      sel.addEventListener("change", async () => {
+        const fd = new FormData();
+        window.appendModuloToFormData(fd);
+        try {
+          const r = await fetch('/api/modulo', {method:'POST', body: fd});
+          const j = await r.json().catch(()=>({}));
+          if(r.ok && j.success){
+            const nextModulo = (j.modulo || sel.value || 'nfcom').toLowerCase();
+            window.__APP_MODULO__ = nextModulo;
+            const path = window.location.pathname || '/';
+            if (/^\/(nfcom|nfe|nfce|nfse)\/(resumo|nota-unica|alteracao|relatorio-cst)\/?$/.test(path)) {
+              const alvo = path.replace(/^\/(nfcom|nfe|nfce|nfse)\//, '/' + nextModulo + '/');
+              window.location.href = alvo;
+            } else if (path.startsWith('/nota')) {
+              window.location.href = '/' + nextModulo + '/nota-unica';
+            } else if (path.startsWith('/alteracao-lote')) {
+              window.location.href = '/' + nextModulo + '/alteracao';
+            } else if (path.startsWith('/dashboard-apuracao')) {
+              window.location.href = '/dashboard-apuracao';
+            } else if (path.startsWith('/resumo')) {
+              window.location.href = '/' + nextModulo + '/resumo';
+            }
+          }
+        } catch(_) {}
+      });
+    });
+  </script>
+
   {% block extra_js %}{% endblock %}
 </body>
 </html>

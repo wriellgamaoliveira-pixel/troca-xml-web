@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Relatório CST NF-e - Troca XML{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Relatório CST NF-e</h1>
+<p class="page-subtitle">Relatório detalhado por item (modelo 55), sem gráficos.</p>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Processar ZIP de NF-e</h2></div>
+  <div class="card-content">
+    <form id="cstForm" method="post" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input class="input" type="file" name="zip_xmls_nfe" accept=".zip" required style="max-width:420px;">
+      <button class="btn" type="submit">Gerar Relatório</button>
+    </form>
+
+    <div id="progress-container" style="display:none; margin-top:12px;">
+      <label>Processando XMLs...</label>
+      <div style="width:100%; background:#eee; border-radius:5px;">
+        <div id="progress-bar" style="width:0%; height:20px; background:#4CAF50; border-radius:5px; text-align:center; color:white;">0%</div>
+      </div>
+    </div>
+
+    {% if error %}
+      <div class="note" style="margin-top:10px;border-color:#ef4444;background:#fef2f2;color:#991b1b;">{{ error }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if data %}
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      <div><p class="kpi-label">Arquivos no ZIP</p><p class="kpi-value">{{ data.total_arquivos }}</p></div>
+      <div><p class="kpi-label">Notas válidas (mod 55)</p><p class="kpi-value">{{ data.total_ok }}</p></div>
+      <div><p class="kpi-label">Itens no relatório</p><p class="kpi-value">{{ data.total_itens }}</p></div>
+    </div>
+    <div style="margin-top:12px;">
+      <a class="btn" href="{{ url_for('nfe.relatorio_cst_csv') }}">Gerar CSV</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Tabela detalhada por item</h2></div>
+  <div class="card-content">
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            {% for _, label in columns %}
+            <th>{{ label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.linhas %}
+          <tr>
+            {% for key, _ in columns %}
+            <td>{{ row[key] }}</td>
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr><td colspan="24" class="center">Sem itens para exibir.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function() {
+  const form = document.getElementById('cstForm');
+  if (!form) return;
+
+  function atualizarProgresso(valor) {
+    const bar = document.getElementById('progress-bar');
+    bar.style.width = valor + "%";
+    bar.innerText = valor + "%";
+  }
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const pc = document.getElementById('progress-container');
+    pc.style.display = 'block';
+    atualizarProgresso(0);
+
+    const r = await fetch('/nfe/relatorio-cst/processar', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok || !j.success) {
+      alert((j && j.error) || 'Falha ao iniciar processamento.');
+      return;
+    }
+
+    const sid = j.sid;
+    const timer = setInterval(async () => {
+      const sr = await fetch('/nfe/relatorio-cst/status/' + sid);
+      const sj = await sr.json();
+      if (!sr.ok || !sj.success) {
+        clearInterval(timer);
+        alert((sj && sj.error) || 'Falha ao consultar progresso.');
+        return;
+      }
+
+      atualizarProgresso(sj.progress || 0);
+      if (sj.status === 'done') {
+        atualizarProgresso(100);
+        clearInterval(timer);
+        window.location.href = '/nfe/relatorio-cst?sid=' + sid;
+      }
+      if (sj.status === 'error') {
+        clearInterval(timer);
+        alert(sj.error || 'Falha no processamento.');
+      }
+    }, 500);
+  });
+})();
+</script>
+{% endblock %}

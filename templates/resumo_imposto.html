@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Relatório por Imposto - Troca XML{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resumo.css') }}">
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  <div>
+    <h1 class="page-title">Relatório por Imposto</h1>
+    <p class="page-subtitle">Processe um ZIP para gerar este relatório</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    {% if session_id %}<a href="/resumo-imposto/csv?session_id={{ session_id }}" class="btn btn-outline btn-sm"><i data-lucide="file-spreadsheet"></i> Gerar CSV</a>{% endif %}
+    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()"><i data-lucide="printer"></i> Imprimir</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Gerar Relatório</h2></div>
+  <div class="card-content">
+    <form id="resumoUploadForm" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;max-width:720px;">
+      <input class="input" type="file" id="resumoZip" name="file" accept=".zip" required>
+      <button class="btn" type="submit" id="btnResumoProcessar"><i data-lucide="wand-2"></i> Processar</button>
+    </form>
+    <div id="resumoProgress" class="note" style="display:none;margin-top:10px;">Iniciando processamento...</div>
+  </div>
+</div>
+
+{% if data and data.avisos and data.avisos.resultados_limitados %}
+<div class="note" style="border-color:#f59e0b;background:#fffbeb;color:#92400e;">
+  <b>Resultados limitados por performance.</b>
+  Exibindo no máximo {{ data.avisos.limite_linhas }} linhas por tabela e {{ data.avisos.limite_notas }} notas detalhadas por grupo.
+</div>
+{% endif %}
+
+{% if data %}
+<div class="card">
+  <div class="card-header"><h2 class="card-title">Resumo Geral</h2></div>
+  <div class="card-content">
+    <div class="summary-grid">
+      {% if data.emitente_nome %}
+      <div>
+        <p class="kpi-label">Emitente</p>
+        <p class="kpi-value" style="font-size:16px;">{{ data.emitente_nome }}</p>
+        {% if data.emitente_cnpj %}<p class="kpi-sub">{{ data.emitente_cnpj }}</p>{% endif %}
+      </div>
+      {% endif %}
+      <div>
+        <p class="kpi-label">Total de Arquivos</p>
+        <p class="kpi-value">{{ data.total_arquivos }}</p>
+      </div>
+      <div style="grid-column: span 2;">
+        <p class="kpi-label">Valor Total</p>
+        <p class="kpi-value primary">{{ data.total_geral_br }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card chart-container">
+  <div class="card-header"><h2 class="card-title">Gráfico (Top 12 CFOP)</h2></div>
+  <div class="card-content">
+    <div class="chart-wrap">
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="cardImpostoUnificado">
+  <div class="card-header">
+    <div class="controls">
+      <div style="display:flex;align-items:center;gap:12px;flex:1;">
+        <h2 class="card-title" style="margin:0;">Tabela por CST ICMS + CFOP</h2>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="impAggExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impAggCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="impAggFilter" placeholder="Filtrar por CST ICMS ou CFOP...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>CST ICMS</th>
+            <th>CFOP</th>
+            <th class="right">Qtd Itens</th>
+            <th class="right">Valor Total</th>
+            <th class="right">ICMS</th>
+            <th class="right">PIS</th>
+            <th class="right">COFINS</th>
+            <th class="right">FUST</th>
+            <th class="right">FUNTTEL</th>
+            <th class="right">IBS</th>
+            <th class="right">CBS</th>
+            <th class="right">Desconto</th>
+            <th class="right">Outras</th>
+          </tr>
+        </thead>
+        <tbody id="impostoAggBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if data.impostos_linhas and data.impostos_linhas|length > 0 %}
+<div class="card" id="cardImpostosRetidos">
+  <div class="card-header">
+    <div class="controls">
+      <div>
+        <h2 class="card-title" style="margin:0;">Tabela de Impostos Retidos (vRetTribTot)</h2>
+        <div style="margin-top:6px;color:var(--muted);font-size:13px;">Total retido: {{ data.total_impostos_br }}</div>
+      </div>
+      <div class="controls-right">
+        <button class="btn btn-outline btn-sm" id="impExpand"><i data-lucide="expand"></i> Expandir Todos</button>
+        <button class="btn btn-outline btn-sm" id="impCollapse"><i data-lucide="minimize-2"></i> Recolher Todos</button>
+      </div>
+    </div>
+
+    <div class="controls mt-8">
+      <div class="controls-left">
+        <div class="input-wrap" style="flex:1;">
+          <i data-lucide="search" class="input-icon"></i>
+          <input class="input pad-left" id="impFilter" placeholder="Filtrar por tipo de imposto...">
+        </div>
+        <select class="select" id="impSort" style="max-width:240px;">
+          <option value="desc">Maior valor primeiro</option>
+          <option value="asc-nome">A-Z (alfabético)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="center" style="width:44px;"></th>
+            <th>Tipo de Imposto</th>
+            <th class="right">Qtd Notas</th>
+            <th class="right">Valor Total</th>
+            <th class="right">%</th>
+          </tr>
+        </thead>
+        <tbody id="impBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}
+
+<script>
+  window.__RESUMO_DATA__ = {{ (data or {})|tojson }};
+  window.__RESUMO_REPORT_TYPE__ = "imposto";
+  window.__RESUMO_CHART_MODE__ = "imposto";
+</script>
+{% endblock %}
+
+{% block extra_js %}
+
+<script>
+(() => {
+  const form = document.getElementById('resumoUploadForm');
+  const progress = document.getElementById('resumoProgress');
+  const btn = document.getElementById('btnResumoProcessar');
+  if(!form) return;
+
+  async function pollStatus(sessionId){
+    while(true){
+      const r = await fetch(`/api/resumo/status?session_id=${encodeURIComponent(sessionId)}&report_type=${encodeURIComponent(window.__RESUMO_REPORT_TYPE__ || 'cclass')}`, {cache:'no-store'});
+      const j = await r.json();
+      if(!j.success) throw new Error(j.error || 'Falha ao consultar status');
+      progress.textContent = `Status: ${j.status || 'running'} | Processados: ${j.processed || 0}/${j.total || 0} | Progresso: ${j.progress || 0}%`;
+      if(j.status === 'error') throw new Error(j.error || 'Erro no processamento');
+      if(j.done){
+        window.location.href = j.redirect;
+        return;
+      }
+      await new Promise(res=>setTimeout(res, 800));
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = document.getElementById('resumoZip').files[0];
+    if(!f) return alert('Selecione um ZIP.');
+    const fd = new FormData();
+    if (window.appendModuloToFormData) window.appendModuloToFormData(fd);
+    fd.append('file', f);
+    fd.append('report_type', window.__RESUMO_REPORT_TYPE__ || 'cclass');
+    progress.style.display = 'block';
+    progress.textContent = 'Enviando arquivo...';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/resumo/upload', {method:'POST', body: fd});
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || !j.success) throw new Error(j.error || 'Erro ao iniciar processamento');
+      await pollStatus(j.session_id);
+    } catch(err){
+      progress.textContent = err.message || 'Falha no processamento';
+      alert(err.message || 'Falha no processamento');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/resumo.js') }}"></script>
+{% endblock %}
